@@ -173,6 +173,56 @@ export function registerTools(server) {
   )
 
   server.registerTool(
+    'listen_together_play',
+    {
+      title: '一起听发送播放指令（实验性）',
+      description:
+        '向当前「一起听」房间上报一条播放指令，尝试让房间切到指定歌曲。' +
+        '⚠ 实验性：上游接口的语义是「本客户端上报自己的播放状态」，' +
+        '能否真正遥控对方客户端未经证实，commandType 的合法取值上游也没有文档。' +
+        '不填 roomId 时自动从当前房间状态取。',
+      inputSchema: {
+        targetSongId: z.number().int().describe('要切到的歌曲 id，用 search_song 拿'),
+        commandType: z
+          .string()
+          .default('PLAY')
+          .describe('指令类型。取值未知，需实验：PLAY / PAUSE / RESUME / SEEK / SWITCH 等'),
+        playStatus: z.string().default('PLAY').describe('播放状态，通常 PLAY 或 PAUSE'),
+        progress: z.number().int().default(0).describe('播放进度（毫秒）'),
+        formerSongId: z
+          .number()
+          .int()
+          .optional()
+          .describe('切换前那首歌的 id，可不填'),
+        roomId: z.string().optional().describe('房间 id，不填则自动取当前房间'),
+      },
+    },
+    async ({ targetSongId, commandType, playStatus, progress, formerSongId, roomId }) => {
+      requireLogin()
+
+      // 省掉调用方先查一次房间的麻烦
+      if (!roomId) {
+        const st = await api.listenTogetherStatus()
+        roomId = st?.data?.roomInfo?.roomId
+        if (!roomId) throw new Error('当前不在任何一起听房间里，无法发送播放指令。')
+      }
+
+      const params = {
+        roomId,
+        commandType,
+        playStatus,
+        progress,
+        targetSongId,
+        formerSongId: formerSongId ?? 0,
+        // 客户端序列号：同一房间内递增即可，用时间戳最省事
+        clientSeq: Date.now(),
+      }
+      const res = await api.listenTogetherPlayCommand(params)
+      return text({ 发送的参数: params, 上游返回: res })
+    },
+  )
+
+  server.registerTool(
     'login_status',
     {
       title: '登录状态',
