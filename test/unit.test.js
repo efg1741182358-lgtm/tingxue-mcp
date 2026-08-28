@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 
 import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
 import {
-  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, GROUPS,
+  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, ack, GROUPS,
 } from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
@@ -216,4 +216,23 @@ test('slimMessage：一句「发送成功」不该带两份用户资料', () => 
 
 test('slimMessage：上游少字段也不炸', () => {
   assert.deepEqual(slimMessage({}), { 已发送: true, 消息id: null, 收件人: null })
+})
+
+test('ack：写操作只回一句确认，不回 code——失败根本走不到这里', () => {
+  assert.deepEqual(ack('删除歌单'), { 已完成: '删除歌单' })
+})
+
+test('ack：显式留下的字段要保住，pid 丢了歌单就再也加不了歌', () => {
+  assert.deepEqual(ack('创建歌单', { pid: 18327059436, 名称: '测试_删我' }), {
+    已完成: '创建歌单',
+    pid: 18327059436,
+    名称: '测试_删我',
+  })
+})
+
+test('ack：详情里的 null / undefined 不占字数', () => {
+  assert.deepEqual(ack('加入歌单', { 歌单现有: undefined, 备注: null, 歌曲数: 0 }), {
+    已完成: '加入歌单',
+    歌曲数: 0,
+  })
 })

@@ -88,6 +88,21 @@ export function stripTimestamps(lrc) {
     .join('\n')
 }
 
+// 写操作（收藏、建歌单、加歌、删歌单、删评论）成功时只需要回答一件事：成了。
+// 失败根本走不到这里——call() 已经在 code != 200 时抛掉了，所以连 code 都不用回。
+// 而上游附赠的东西一律不值钱：create_playlist 回四十多个字段五百多 token
+// （背景图 URL、commentThreadId、anonimous、coverImgId_str……），真正有用的
+// 只有 id 和 name；add_to_playlist 回一份 trackIds 参数回声，外加只在歌单
+// 从空变非空那一次才出现的封面 URL；delete_playlist 回三个恒为 null 的 msg。
+// 统一收成一行确认，需要留的字段显式写进 详情。
+export function ack(动作, 详情) {
+  const out = { 已完成: 动作 }
+  for (const [k, v] of Object.entries(详情 || {})) {
+    if (v != null) out[k] = v
+  }
+  return out
+}
+
 // 评论发出后原样返回一大坨（含发布者头像、等级、会员信息……）。
 // 只留下真正有用的那一个：commentId。没有它就删不掉自己刚发的评论。
 export function slimComment(res) {
@@ -187,7 +202,8 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     },
     async ({ id, like }) => {
       requireLogin()
-      return text(await api.like(id, like))
+      await api.like(id, like)
+      return text(ack(like ? '加入「我喜欢的音乐」' : '移出「我喜欢的音乐」'))
     },
   )
 
@@ -223,7 +239,9 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     },
     async ({ name, private: isPrivate }) => {
       requireLogin()
-      return text(await api.playlistCreate(name, isPrivate))
+      const res = await api.playlistCreate(name, isPrivate)
+      // pid 必须留：建完拿不到 id，这个歌单就再也加不了歌了。
+      return text(ack('创建歌单', { pid: res?.id ?? res?.playlist?.id, 名称: res?.playlist?.name ?? name }))
     },
   )
 
@@ -240,7 +258,10 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     },
     async ({ pid, trackIds, op }) => {
       requireLogin()
-      return text(await api.playlistTracks(op, pid, trackIds.join(',')))
+      const res = await api.playlistTracks(op, pid, trackIds.join(','))
+      // count 是操作后歌单里的总曲目数，不是这次加了几首——实测加两次是 1、2，
+      // 移除一次回到 1。留着它，调用方不用再多查一次 my_playlists 才敢信。
+      return text(ack(op === 'add' ? '加入歌单' : '移出歌单', { 歌单现有: res?.count }))
     },
   )
 
@@ -253,7 +274,8 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     },
     async ({ pid }) => {
       requireLogin()
-      return text(await api.playlistDelete(pid))
+      await api.playlistDelete(pid)
+      return text(ack('删除歌单'))
     },
   )
 
@@ -291,9 +313,8 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     },
     async ({ id, commentId, type }) => {
       requireLogin()
-      return text(
-        await api.comment({ t: 0, type: type === 'song' ? 0 : 2, id, commentId }),
-      )
+      await api.comment({ t: 0, type: type === 'song' ? 0 : 2, id, commentId })
+      return text(ack('删除评论'))
     },
   )
 
