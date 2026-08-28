@@ -71,6 +71,13 @@ export const api = {
   // t: 1=发送 0=删除 2=回复；type: 0=歌曲 2=歌单 ...
   comment: (params) => call('comment', params),
 
+  // --- 歌词 ---
+  lyric: (id) => call('lyric_new', { id }),
+
+  // --- 私信 ---
+  sendText: (userIds, msg) => call('send_text', { user_ids: userIds, msg }),
+  sendSong: (userIds, id, msg) => call('send_song', { user_ids: userIds, id, msg }),
+
   // --- 一起听 ---
   listenTogetherStatus: () => call('listentogether_status'),
   listenTogetherPlayCommand: (params) =>

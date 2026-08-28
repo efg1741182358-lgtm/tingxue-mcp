@@ -7,17 +7,29 @@
 | 工具 | 说明 |
 |---|---|
 | `search_song` | 搜歌，返回歌曲 id / 名称 / 歌手 / 专辑 |
+| `get_lyric` | 看歌词，有翻译一并返回 |
 | `like_song` | 收藏、取消收藏 |
 | `my_playlists` | 列出自己的歌单（拿 pid） |
 | `create_playlist` | 新建歌单 |
 | `add_to_playlist` | 歌曲加入 / 移出歌单 |
 | `write_comment` | 给歌曲或歌单发评论 |
+| `send_message` | 给某人发文字私信 |
+| `send_song_to` | 把一首歌连同一句话私信给某人 |
 | `listen_together_status` | 查看「一起听」房间状态 |
+| `listen_together_play` | ⚠ 实验性：向房间上报播放指令，尝试切歌 |
 | `login_status` | 查当前登录的账号 |
 
-> **换歌（一起听遥控）暂未实现。** 上游接口 `listentogether_play_command` 存在，
-> 但它的语义是「本客户端上报播放状态」，能否真正让对方客户端跳歌需要实机验证。
-> 没验证的功能不写进来。
+### 两个已知够不到的地方
+
+**一起听房间内的聊天发不了。** 房间聊天走网易云信 IM 长连接
+（`roomRTCType: "yunxin"`，房间返回里有 `chatRoomId` 和
+`agoraChannelId`），需要独立 SDK 和 token。上游 377 个接口里没有
+任何一个能往房间里发消息。`send_message` 是私信，不是房间发言。
+
+**遥控切歌未经证实。** `listen_together_play` 调的
+`listentogether_play_command`，注释写的是「发送播放状态」——语义是
+本客户端上报自己在放什么，不是命令对方跳歌。接口能调通不代表对方
+真的会跟着切。`commandType` 的合法取值上游也没有文档。
 
 ## 部署（Zeabur）
 

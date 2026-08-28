@@ -173,6 +173,64 @@ export function registerTools(server) {
   )
 
   server.registerTool(
+    'get_lyric',
+    {
+      title: '看歌词',
+      description: '取一首歌的歌词。有翻译的话一并返回。需要歌曲 id，用 search_song 拿。',
+      inputSchema: {
+        id: z.number().int().describe('歌曲 id'),
+        withTranslation: z.boolean().default(true).describe('是否一并返回中文翻译'),
+      },
+    },
+    async ({ id, withTranslation }) => {
+      const res = await api.lyric(id)
+      const 原文 = res?.lrc?.lyric?.trim()
+      if (!原文) return text('这首歌没有歌词（纯音乐，或网易云没收录）。')
+      const out = { 歌词: 原文 }
+      const 译 = res?.tlyric?.lyric?.trim()
+      if (withTranslation && 译) out.翻译 = 译
+      return text(out)
+    },
+  )
+
+  server.registerTool(
+    'send_message',
+    {
+      title: '发私信',
+      description:
+        '给网易云用户发一条文字私信。⚠ 一起听房间内的聊天走的是 IM 长连接，' +
+        '本 API 够不到；这是私信，会出现在对方的私信列表里。以本账号名义发出。',
+      inputSchema: {
+        userId: z.number().int().describe('收信人的 uid'),
+        message: z.string().max(500).describe('私信正文'),
+      },
+    },
+    async ({ userId, message }) => {
+      requireLogin()
+      return text(await api.sendText(String(userId), message))
+    },
+  )
+
+  server.registerTool(
+    'send_song_to',
+    {
+      title: '把一首歌私信给某人',
+      description:
+        '把一首歌连同一句话发给对方，对方在私信里能直接点开听。' +
+        '比单纯发歌名好用。以本账号名义发出。',
+      inputSchema: {
+        userId: z.number().int().describe('收信人的 uid'),
+        songId: z.number().int().describe('歌曲 id，用 search_song 拿'),
+        message: z.string().max(500).default('').describe('附带的一句话，可留空'),
+      },
+    },
+    async ({ userId, songId, message }) => {
+      requireLogin()
+      return text(await api.sendSong(String(userId), songId, message))
+    },
+  )
+
+  server.registerTool(
     'listen_together_play',
     {
       title: '一起听发送播放指令（实验性）',
