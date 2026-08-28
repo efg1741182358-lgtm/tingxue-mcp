@@ -1,0 +1,21 @@
+{
+  "name": "netease-mcp",
+  "version": "0.1.0",
+  "description": "网易云音乐 MCP 服务 — 可作为 claude.ai 远程连接器直接挂载",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "NeteaseCloudMusicApi": "^4.32.0",
+    "express": "^5.2.1",
+    "qrcode": "^1.5.4",
+    "zod": "^3.25.0"
+  },
+  "license": "MIT"
+}
