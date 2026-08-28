@@ -14,6 +14,17 @@ const BASE_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`)
   .trim()
   .replace(/\/+$/, '')
 
+// 构建标记：优先用部署平台注入的 commit，没有就退回 package.json 的版本号。
+// 各家面板注入的变量名不一样，都试一遍，别为了一个字符串把服务搞挂。
+const BUILD =
+  process.env.BUILD_ID ||
+  process.env.ZEABUR_GIT_COMMIT_SHA ||
+  process.env.RAILWAY_GIT_COMMIT_SHA ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.SOURCE_COMMIT ||
+  process.env.GIT_COMMIT ||
+  '0.1.0（未注入 commit）'
+
 const app = express()
 app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true }))
@@ -21,9 +32,16 @@ app.use(express.urlencoded({ extended: true }))
 mountOAuth(app, BASE_URL)
 
 // --- MCP 端点（无状态：每个请求一个 server 实例，横向扩容也不会串）---
+// 这一版到底部署上去没有——今天为这个问题栽过一次：代码推在另一条分支上，
+// 面板上怎么点「重新部署」都拉不到，而现象跟「客户端缓存了旧工具表」一模一样。
+// 分不出来是因为服务端从不自报家门。所以把「我现在有哪些工具」摆到首页上，
+// 用手机浏览器打开就能对答案，不用先开一个新会话去试。
+const 启动于 = new Date().toISOString()
+let 工具清单 = []
+
 app.post('/mcp', requireAuth(BASE_URL), async (req, res) => {
   const server = new McpServer({ name: 'netease-mcp', version: '0.1.0' })
-  registerTools(server)
+  工具清单 = registerTools(server)
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
   res.on('close', () => {
     transport.close()
@@ -106,11 +124,30 @@ app.get('/', (_req, res) => {
      <p>登录状态：<b>${session.isLoggedIn() ? '已登录' : '未登录'}</b></p>
      <p><a href="/login" style="color:#c96442">去扫码登录</a></p>
      <p style="color:#666;font-size:13px">MCP 端点：<code>${BASE_URL}/mcp</code></p>
+     <hr style="border:none;border-top:1px solid #333;margin:24px 0">
+     <p style="color:#888;font-size:13px">版本 <code>${BUILD}</code> ・ 启动于 ${启动于}</p>
+     <p style="color:#888;font-size:13px">本次注册了 <b>${工具清单.length}</b> 个工具：</p>
+     <p style="color:#666;font-size:12px;line-height:1.9">${
+       工具清单.length
+         ? 工具清单.map((n) => `<code>${n}</code>`).join(' ')
+         : '（还没有请求打到 /mcp，工具清单在第一次请求后才有）'
+     }</p>
+     <p style="color:#555;font-size:12px">看不到刚加的工具？先看这里有没有：<b>这里有 = 服务端是新的</b>，
+     那就是客户端缓存了旧工具表，换个新会话即可；<b>这里也没有 = 部署没生效</b>，去看拉的是哪条分支。</p>
      </body>`,
   )
 })
 
-app.get('/healthz', (_req, res) => res.json({ ok: true, loggedIn: session.isLoggedIn() }))
+app.get('/healthz', (_req, res) =>
+  res.json({
+    ok: true,
+    loggedIn: session.isLoggedIn(),
+    版本: BUILD,
+    启动于,
+    工具数: 工具清单.length,
+    工具: 工具清单,
+  }),
+)
 
 // --- 启动 ---
 await session.load()

@@ -129,12 +129,36 @@ export function slimRecord(res, 周榜) {
   }))
 }
 
-// 歌词的时间轴（[00:11.37]）在对话里没有任何用处，但每行要占十来个字符。
-// 一首四十行的歌，光时间轴就是一两百 token 的纯噪音。默认剥掉，不给开关。
+// 歌词里混着两种「不是歌词」的东西：
+//
+//   1. [00:11.37] 这样的时间轴前缀。对话里没有任何用处，一首四十行的歌光
+//      时间轴就是一两百 token 的纯噪音。
+//
+//   2. 头尾那几行制作人员信息，整行是一段富文本 JSON：
+//        {"t":0,"c":[{"tx":"作词: "},{"tx":"张三","li":"http://…jpg",
+//                     "or":"orpheus://…"}]}
+//      除了人名，里面还塞着头像图片 URL 和 orpheus:// 站内跳转链接。原样
+//      丢进上下文，一行就顶掉几十个 token，而且是一串没人读得懂的转义引号。
+//
+// 原来只剥了第一种，第二种整串漏了出去。这里把富文本行还原成人话——只拼
+// tx，图片和跳转链接一并丢掉：读歌词的人不需要作词人的头像。
+//
+// 不是合法 JSON 就原样留着。看不懂的东西宁可原样交出去，也不要猜着改。
+function plainLine(line) {
+  if (!line.startsWith('{')) return line
+  try {
+    const o = JSON.parse(line)
+    if (!Array.isArray(o?.c)) return line
+    return o.c.map((seg) => seg?.tx ?? '').join('').trim()
+  } catch {
+    return line
+  }
+}
+
 export function stripTimestamps(lrc) {
   return lrc
     .split('\n')
-    .map((line) => line.replace(/^(\[[\d:.]+\])+/, '').trim())
+    .map((line) => plainLine(line.replace(/^(\[[\d:.]+\])+/, '').trim()))
     .filter(Boolean)
     .join('\n')
 }
