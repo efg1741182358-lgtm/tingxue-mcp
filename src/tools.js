@@ -96,6 +96,17 @@ export function slimComment(res) {
   return { 评论id: c.commentId, 内容: c.content }
 }
 
+// 私信发出后，上游为了说一句「成功」回了两份完整用户资料——头像、背景图、
+// 生日、地区、会员等级……实测约 900 token，真正有用的就下面三个字段。
+export function slimMessage(res) {
+  const m = (res?.newMsgs || [])[0]
+  return {
+    已发送: true,
+    消息id: res?.id ?? m?.id ?? null,
+    收件人: m?.toUser?.nickname ?? null,
+  }
+}
+
 // 一起听的原始返回里，两个人各带一整套头像挂件（安卓/iOS/PC/循环共四个 URL），
 // 加起来一千多 token，而真正有用的就下面这几行。
 export function slimRoom(res) {
@@ -140,7 +151,7 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       description: '搜歌，返回 id/歌名/歌手/专辑/时长。翻唱同名多，用时长区分。',
       inputSchema: {
         keywords: z.string().describe('歌名或歌手'),
-        limit: z.number().int().min(1).max(20).default(5).describe('返回条数'),
+        limit: z.coerce.number().int().min(1).max(20).default(5).describe('返回条数'),
       },
     },
     async ({ keywords, limit }) => text(slimSongs(await api.search(keywords, limit))),
@@ -151,7 +162,7 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     {
       title: '看歌词',
       description: '取歌词，有翻译一并返回。已去掉时间轴。',
-      inputSchema: { id: z.number().int().describe('歌曲 id') },
+      inputSchema: { id: z.coerce.number().int().describe('歌曲 id') },
     },
     async ({ id }) => {
       const res = await api.lyric(id)
@@ -170,7 +181,7 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       title: '收藏歌曲',
       description: '把歌加入或移出「我喜欢的音乐」。',
       inputSchema: {
-        id: z.number().int().describe('歌曲 id'),
+        id: z.coerce.number().int().describe('歌曲 id'),
         like: z.boolean().default(true).describe('false=取消收藏'),
       },
     },
@@ -222,8 +233,8 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       title: '歌曲加入歌单',
       description: '把歌加进或移出歌单。只能改本账号创建的歌单。',
       inputSchema: {
-        pid: z.number().int().describe('歌单 id'),
-        trackIds: z.array(z.number().int()).min(1).describe('歌曲 id 列表'),
+        pid: z.coerce.number().int().describe('歌单 id'),
+        trackIds: z.array(z.coerce.number().int()).min(1).describe('歌曲 id 列表'),
         op: z.enum(['add', 'del']).default('add').describe('del=移除'),
       },
     },
@@ -238,7 +249,7 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     {
       title: '删除歌单',
       description: '删掉自己的歌单。删了拿不回来。',
-      inputSchema: { pid: z.number().int().describe('歌单 id') },
+      inputSchema: { pid: z.coerce.number().int().describe('歌单 id') },
     },
     async ({ pid }) => {
       requireLogin()
@@ -252,7 +263,7 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       title: '写评论',
       description: '给歌曲或歌单发评论。公开可见，落本人账号名下。',
       inputSchema: {
-        id: z.number().int().describe('歌曲或歌单 id'),
+        id: z.coerce.number().int().describe('歌曲或歌单 id'),
         content: z.string().max(140).describe('评论正文'),
         type: z.enum(['song', 'playlist']).default('song'),
       },
@@ -273,8 +284,8 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       title: '删除评论',
       description: '删掉自己发过的一条评论。commentId 由 write_comment 返回。',
       inputSchema: {
-        id: z.number().int().describe('被评论的歌曲或歌单 id'),
-        commentId: z.number().int().describe('评论 id'),
+        id: z.coerce.number().int().describe('被评论的歌曲或歌单 id'),
+        commentId: z.coerce.number().int().describe('评论 id'),
         type: z.enum(['song', 'playlist']).default('song'),
       },
     },
@@ -293,16 +304,16 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       description:
         '给某人发私信，可附一首歌。注意这是私信，不是「一起听」房间内发言（房间聊天走 IM 长连接，本 API 够不到）。',
       inputSchema: {
-        userId: z.number().int().describe('收信人 uid'),
+        userId: z.coerce.number().int().describe('收信人 uid'),
         message: z.string().max(500).default('').describe('正文'),
-        songId: z.number().int().optional().describe('附带的歌曲 id'),
+        songId: z.coerce.number().int().optional().describe('附带的歌曲 id'),
       },
     },
     async ({ userId, message, songId }) => {
       requireLogin()
-      if (songId) return text(await api.sendSong(String(userId), songId, message))
+      if (songId) return text(slimMessage(await api.sendSong(String(userId), songId, message)))
       if (!message) throw new Error('message 和 songId 至少要给一个。')
-      return text(await api.sendText(String(userId), message))
+      return text(slimMessage(await api.sendText(String(userId), message)))
     },
   )
 

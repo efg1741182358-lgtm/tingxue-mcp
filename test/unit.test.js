@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 
 import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
 import {
-  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, GROUPS,
+  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, GROUPS,
 } from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
@@ -198,4 +198,22 @@ test('删除类工具跟对应的创建工具在同一组，不会出现开了�
   assert.ok(GROUPS.social.includes('delete_comment'))
   const on = enabledTools('library')
   assert.ok(on.has('delete_playlist'))
+})
+
+test('slimMessage：一句「发送成功」不该带两份用户资料', () => {
+  const 上游 = {
+    code: 200,
+    id: 352421123097,
+    newMsgs: [{
+      id: 352421123097,
+      msg: '{"msg":"测试"}',
+      fromUser: { nickname: '甲', avatarUrl: 'http://…', backgroundUrl: 'http://…', birthday: -2209017600000 },
+      toUser: { nickname: '乙', avatarUrl: 'http://…', backgroundUrl: 'http://…', vipType: 11 },
+    }],
+  }
+  assert.deepEqual(slimMessage(上游), { 已发送: true, 消息id: 352421123097, 收件人: '乙' })
+})
+
+test('slimMessage：上游少字段也不炸', () => {
+  assert.deepEqual(slimMessage({}), { 已发送: true, 消息id: null, 收件人: null })
 })
