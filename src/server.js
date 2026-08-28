@@ -2,7 +2,7 @@ import express from 'express'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 
-import { registerTools } from './tools.js'
+import { registerTools, GROUPS } from './tools.js'
 import { mountOAuth, requireAuth, passwordFingerprint } from './oauth.js'
 import { api } from './netease.js'
 import * as session from './session.js'
@@ -132,6 +132,18 @@ app.listen(PORT, () => {
     console.warn('  ⚠ PUBLIC_URL 首尾有空白，已自动清除；建议在面板上一并改掉')
   }
   console.log(`  数据目录 ${process.env.DATA_DIR || './data'}（未挂持久卷则重启后需重新扫码）`)
+  // 工具定义会进模型每一轮的上下文，是笔固定开销。把启用了几个打出来，
+  // 免得部署者不知道自己在为用不上的工具付钱。
+  const probe = []
+  registerTools({ registerTool: (n) => probe.push(n) })
+  console.log(
+    `  已启用 ${probe.length} 个工具${
+      process.env.TOOLS ? `（TOOLS=${process.env.TOOLS}）` : '（全开，可用 TOOLS 精简）'
+    }：${probe.join(' ')}`,
+  )
+  if (!process.env.TOOLS) {
+    console.log(`  可用工具组：${Object.keys(GROUPS).join(' / ')}`)
+  }
   if (passwordFingerprint) {
     console.log(`  口令指纹 ${passwordFingerprint}（这个值一变，已签发的令牌全部失效）`)
   }
