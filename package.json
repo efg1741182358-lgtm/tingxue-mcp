@@ -1,7 +1,7 @@
 {
-  "name": "netease-mcp",
+  "name": "tingxue-mcp",
   "version": "0.1.0",
-  "description": "网易云音乐 MCP 服务 — 可作为 claude.ai 远程连接器直接挂载",
+  "description": "听雪 — 网易云音乐 MCP 服务，可作为 claude.ai 远程连接器直接挂载",
   "type": "module",
   "main": "src/server.js",
   "scripts": {

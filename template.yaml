@@ -5,9 +5,9 @@
 apiVersion: zeabur.com/v1
 kind: Template
 metadata:
-  name: netease-mcp
+  name: tingxue-mcp
 spec:
-  description: 网易云音乐 MCP 服务，可作为 claude.ai 远程连接器挂载
+  description: 听雪 — 网易云音乐 MCP 服务，可作为 claude.ai 远程连接器挂载
   tags:
     - MCP
     - Music
@@ -23,14 +23,19 @@ spec:
       name: 访问口令
       description: 挂载连接器时在授权页输入的口令。设长一点，这是唯一的门。
 
+    - key: REAL_IP
+      type: STRING
+      name: 出站 IP
+      description: 一个国内 IP。网易云按 IP 限区，境外机器不带会静默返回空结果。填你自己的，不要和别人共用。
+
   services:
-    - name: netease-mcp
+    - name: tingxue-mcp
       template: GIT
       spec:
         source:
           type: GITHUB
-          repoID: efg1741182358-lgtm/-mcp-
-          branch: claude/netease-mcp-v1
+          repoID: efg1741182358-lgtm/tingxue-mcp
+          branch: main
           dockerfile: Dockerfile
         ports:
           - id: web
@@ -51,4 +56,4 @@ spec:
             default: ${AUTH_PASSWORD}
           # 网易云按 IP 限区，境外机器必须带国内 IP，否则静默返回空结果
           REAL_IP:
-            default: "116.25.146.177"
+            default: ${REAL_IP}

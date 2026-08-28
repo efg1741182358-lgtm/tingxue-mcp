@@ -4,7 +4,21 @@ import * as session from './session.js'
 
 // 网易云按 IP 限区。服务器在境外时不带 realIP 会静默返回空结果 /
 // -460「网络太拥挤」，而不是明确报错——这是最容易查半天的坑。
-const REAL_IP = process.env.REAL_IP || '116.25.146.177'
+//
+// 这里**故意不给静默默认值**。曾经有一个写死的示例 IP 兜底，服务照跑，
+// 谁也不知道自己在用它——那意味着每一份部署都从同一个地址出站，那个地址
+// 迟早被限流，然后是所有人一起挂，而且各自都查不出原因。
+// 没设就在启动时喊一声，用示例地址顶着跑，但必须让人知道自己在顶着跑。
+const FALLBACK_REAL_IP = '116.25.146.177'
+const REAL_IP = process.env.REAL_IP || FALLBACK_REAL_IP
+
+if (!process.env.REAL_IP) {
+  console.warn(
+    `[warn] REAL_IP 未设置，暂用文档里的示例地址 ${FALLBACK_REAL_IP}。\n` +
+    '       这个地址被所有未配置的部署共享，随时可能被网易云限流。\n' +
+    '       请设置成你自己的国内 IP。'
+  )
+}
 
 // NeteaseCloudMusicApi 失败时 reject 的是普通对象 {status, body}，不是 Error。
 // 直接往上抛的话，错误信息会变成 "[object Object]"，等于没有信息。
