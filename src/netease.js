@@ -140,6 +140,9 @@ export const api = {
   // 删除要额外给 commentId——所以发评论时必须把 id 交出来，
   // 否则「发得出撤不回」。
   comment: (params) => call('comment', params),
+  // 我发过的评论。time 是游标（上一页最后一条的 time），0 = 从最新开始。
+  userCommentHistory: (uid, limit = 10, time = 0) =>
+    call('user_comment_history', { uid, limit, time }),
 
   // --- 歌词 ---
   lyric: (id) => call('lyric_new', { id }),

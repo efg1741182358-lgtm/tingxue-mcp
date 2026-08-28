@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 
 import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
 import {
-  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, ack, GROUPS,
+  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, GROUPS,
 } from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
@@ -235,4 +235,52 @@ test('ack：详情里的 null / undefined 不占字数', () => {
     已完成: '加入歌单',
     歌曲数: 0,
   })
+})
+
+test('beijing：毫秒时间戳按北京时间显示，不能甩个 UTC 让人自己换算', () => {
+  // 2026-08-28T23:30:00+08:00 == 1787931000000
+  assert.equal(beijing(1787931000000), '2026-08-28 23:30')
+  assert.equal(beijing(0), null)
+  assert.equal(beijing(undefined), null)
+})
+
+test('slimHistory：认不出返回结构时要明说，不能返回空数组假装「没有评论」', () => {
+  const out = slimHistory({ code: 200, 某个没见过的字段: {} })
+  assert.ok(!Array.isArray(out), '不能伪装成一个正常的空列表')
+  assert.match(out.结果, /没认出/)
+  assert.deepEqual(out.顶层字段, ['code', '某个没见过的字段'])
+})
+
+test('slimHistory：真的一条评论都没有时，返回的是空数组而不是报错', () => {
+  assert.deepEqual(slimHistory({ code: 200, data: { comments: [] } }), [])
+})
+
+test('slimHistory：留下 commentId，否则查得到也删不掉', () => {
+  const out = slimHistory({
+    data: {
+      comments: [
+        {
+          comment: { commentId: 9624313173, content: '他朝若是同淋雪', time: 1787931000000 },
+          resource: { name: '同淋雪' },
+        },
+      ],
+    },
+  })
+  assert.deepEqual(out, [
+    { 评论id: 9624313173, 正文: '他朝若是同淋雪', 作品: '同淋雪', 发布时间: '2026-08-28 23:30' },
+  ])
+})
+
+test('slimHistory：评论字段不套 comment 层时也认得（上游两种写法都见过）', () => {
+  const out = slimHistory({
+    data: { comments: [{ commentId: 1, content: 'x', time: 1787931000000, resourceInfo: { title: 'y' } }] },
+  })
+  assert.equal(out[0].评论id, 1)
+  assert.equal(out[0].作品, 'y')
+})
+
+test('my_comments 跟写/删评论在同一组，不会出现发得出、查不着', () => {
+  assert.ok(GROUPS.social.includes('my_comments'))
+  assert.ok(GROUPS.social.includes('write_comment'))
+  assert.ok(GROUPS.social.includes('delete_comment'))
 })

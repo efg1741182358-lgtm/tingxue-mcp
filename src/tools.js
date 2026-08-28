@@ -18,7 +18,7 @@ export const GROUPS = {
   search: ['search_song'],
   lyric: ['get_lyric'],
   library: ['like_song', 'my_playlists', 'create_playlist', 'add_to_playlist', 'delete_playlist'],
-  social: ['write_comment', 'delete_comment', 'send_message'],
+  social: ['write_comment', 'my_comments', 'delete_comment', 'send_message'],
   together: ['listen_together_status'],
   status: ['login_status'],
 }
@@ -109,6 +109,46 @@ export function slimComment(res) {
   const c = res?.comment
   if (!c?.commentId) return { 结果: '已提交，但上游没有返回评论 id（就删不掉了）', 原始: res }
   return { 评论id: c.commentId, 内容: c.content }
+}
+
+// 网易云回的是毫秒时间戳，而服务器可能跑在任何时区。直接 toISOString 会
+// 得到 UTC——北京时间早上八点前的事会被显示成前一天，看的人得自己换算。
+// 这里显式加 8 小时，字段名也写明是北京时间。
+export function beijing(ms) {
+  if (!ms) return null
+  return new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')
+}
+
+// 「我发过的评论」。这个接口没能在开发机上跑通（出网白名单不含 music.163.com），
+// 响应结构是照 weapi 的惯例推的。所以认不出结构时必须明说并把字段名报上来——
+// 绝不能返回一个空数组假装「你没发过评论」。工具宁可说「我不知道」，也不能
+// 说一句听起来像答案的假话：调用方分不出「查到了，是空的」和「我没看懂」。
+export function slimHistory(res) {
+  const data = res?.data ?? res
+  const list = [data?.comments, data?.commentHistoryList, data?.list, data?.records].find(
+    Array.isArray,
+  )
+  if (!list) {
+    return {
+      结果: '没认出这个接口的返回结构，不敢瞎猜',
+      顶层字段: Object.keys(res || {}),
+      data字段:
+        data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data) : null,
+      下一步: '把上面两行字段名交给开发者，一次往返就能改对',
+    }
+  }
+  return list.map((item) => {
+    const c = item?.comment ?? item
+    const r = item?.resource ?? item?.resourceInfo ?? c?.resource ?? {}
+    return {
+      // commentId 必须留：没有它就删不掉，这个工具也就闭不上环。
+      评论id: c?.commentId ?? item?.commentId ?? null,
+      正文: c?.content ?? item?.content ?? null,
+      // 跨歌曲的列表，不标明是哪一首就认不出哪条是哪条。
+      作品: r?.name ?? r?.title ?? r?.songName ?? null,
+      发布时间: beijing(c?.time ?? item?.time),
+    }
+  })
 }
 
 // 私信发出后，上游为了说一句「成功」回了两份完整用户资料——头像、背景图、
@@ -297,6 +337,22 @@ export function registerTools(server, only = DEFAULT_ONLY) {
           await api.comment({ t: 1, type: type === 'song' ? 0 : 2, id, content }),
         ),
       )
+    },
+  )
+
+  add(
+    'my_comments',
+    {
+      title: '我的评论',
+      description: '列出本账号发过的评论，含 commentId（删评论要用）。',
+      inputSchema: {
+        limit: z.coerce.number().int().min(1).max(50).default(10).describe('返回条数'),
+      },
+    },
+    async ({ limit }) => {
+      requireLogin()
+      const me = await api.userAccount()
+      return text(slimHistory(await api.userCommentHistory(me?.account?.id, limit)))
     },
   )
 
