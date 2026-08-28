@@ -3,7 +3,18 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 
 import { registerTools, GROUPS } from './tools.js'
-import { mountOAuth, requireAuth, passwordFingerprint } from './oauth.js'
+import {
+  mountOAuth,
+  requireAuth,
+  passwordFingerprint,
+  hasPassword,
+  signAdmin,
+  verifyAdmin,
+  readCookie,
+  passwordOk,
+  formPage,
+  ADMIN_COOKIE,
+} from './oauth.js'
 import { api } from './netease.js'
 import * as session from './session.js'
 
@@ -56,8 +67,69 @@ app.all('/mcp', (_req, res) =>
   res.status(405).json({ error: 'method_not_allowed' }),
 )
 
-// --- 扫码登录页 ---
-app.get('/login', (_req, res) => {
+// --- 扫码登录：账号入口，必须和 /mcp 一样守住 ---
+//
+// 这里曾经是完全公开的。后果不是「别人偷走你的 Cookie」，而是反过来：
+// 任何知道地址的人都能拉一个二维码、用**他自己的**网易云账号扫，然后调
+// /login/check——服务端会把他的登录态存下来，顶掉你的。之后这台服务替
+// 他的账号干活，你的助手在往陌生人的账号里写评论建歌单，而你完全不知道。
+// 一个只守住 /mcp 的口令，守的是「谁能指挥它」，没守住「它是谁」。
+//
+// 门用同一个 AUTH_PASSWORD，通过后发一张 30 分钟的管理 cookie，够扫码用。
+// 没设口令时只放行回环地址：本地跑不该被这道门挡住，公网跑不该没有门。
+function isLoopback(req) {
+  const ip = (req.ip || req.socket?.remoteAddress || '').replace(/^::ffff:/, '')
+  return ip === '127.0.0.1' || ip === '::1'
+}
+
+function adminOk(req) {
+  if (hasPassword) return verifyAdmin(readCookie(req, ADMIN_COOKIE))
+  return isLoopback(req)
+}
+
+function denyAdmin(req, res) {
+  if (!hasPassword) {
+    return res
+      .status(403)
+      .json({ error: 'forbidden', message: '未设置 AUTH_PASSWORD 时，扫码登录只允许本机访问' })
+  }
+  if (req.path === '/login') {
+    return res.type('html').send(
+      formPage({
+        action: `${BASE_URL}/login/auth`,
+        title: '管理登录',
+        hint: '扫码登录会更换本服务使用的网易云账号，需要访问口令。',
+      }),
+    )
+  }
+  return res.status(401).json({ error: 'unauthorized', message: '请先在 /login 输入访问口令' })
+}
+
+const requireAdmin = (req, res, next) => (adminOk(req) ? next() : denyAdmin(req, res))
+
+app.post('/login/auth', (req, res) => {
+  if (!hasPassword) return denyAdmin(req, res)
+  if (!passwordOk(req.body?.password)) {
+    return res.status(401).type('html').send(
+      formPage({
+        action: `${BASE_URL}/login/auth`,
+        title: '管理登录',
+        hint: '扫码登录会更换本服务使用的网易云账号，需要访问口令。',
+        error: '口令不对',
+      }),
+    )
+  }
+  res.cookie?.(ADMIN_COOKIE, signAdmin(), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: BASE_URL.startsWith('https://'),
+    maxAge: 30 * 60_000,
+    path: '/login',
+  })
+  res.redirect(`${BASE_URL}/login`)
+})
+
+app.get('/login', requireAdmin, (_req, res) => {
   res.type('html').send(`<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>扫码登录网易云</title>
@@ -96,7 +168,7 @@ boot()
 </script>`)
 })
 
-app.get('/login/qr', async (_req, res) => {
+app.get('/login/qr', requireAdmin, async (_req, res) => {
   try {
     const { data } = await api.qrKey()
     const created = await api.qrCreate(data.unikey)
@@ -106,7 +178,7 @@ app.get('/login/qr', async (_req, res) => {
   }
 })
 
-app.get('/login/check', async (req, res) => {
+app.get('/login/check', requireAdmin, async (req, res) => {
   try {
     const r = await api.qrCheck(req.query.key)
     if (r.code === 803 && r.cookie) await session.save(r.cookie)
