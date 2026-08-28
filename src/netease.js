@@ -71,6 +71,9 @@ async function call(name, params = {}, opts = {}) {
   return body
 }
 
+// 上游有接口用字符串比较布尔值，统一转成 'true' / 'false' 再传。
+export const boolFlag = (v) => (v ? 'true' : 'false')
+
 export const api = {
   // --- 登录 ---
   qrKey: () => call('login_qr_key'),
@@ -86,7 +89,11 @@ export const api = {
     call('search', { keywords, limit, type }),
 
   // --- 收藏 / 歌单 ---
-  like: (id, like = true) => call('like', { id, like }),
+  // ⚠ 上游 like.js 是 `query.like == 'false' ? false : true`——拿参数跟
+  // **字符串** 'false' 比。传真布尔 false 时 `false == 'false'` 会走
+  // 0 == NaN 得出 false，于是三元取 true：取消收藏被静悄悄翻译成收藏，
+  // 而且照样回 code 200。必须传字符串。
+  like: (id, like = true) => call('like', { id, like: boolFlag(like) }),
   playlistCreate: (name, privacy) =>
     call('playlist_create', { name, ...(privacy ? { privacy: 10 } : {}) }),
   playlistTracks: (op, pid, tracks) =>

@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { explain } from '../src/netease.js'
+import { explain, boolFlag } from '../src/netease.js'
 import { slimSongs, mmss, slimRoom, stripTimestamps, enabledTools } from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
@@ -122,4 +122,21 @@ test('enabledTools：按组启用，没启用的工具连定义都不该出现',
 test('enabledTools：也接受单个工具名，认不出的忽略掉但不炸', () => {
   const on = enabledTools('search_song, 不存在的东西 ,together')
   assert.deepEqual([...on].sort(), ['listen_together_status', 'search_song'])
+})
+
+test('boolFlag：布尔转字符串', () => {
+  assert.equal(boolFlag(true), 'true')
+  assert.equal(boolFlag(false), 'false')
+})
+
+test('boolFlag：回归——上游 like.js 拿字符串比布尔，传真 false 会被判成 true', () => {
+  // 上游原样逻辑：query.like = query.like == 'false' ? false : true
+  const upstream = (v) => (v == 'false' ? false : true)
+
+  // 直接传布尔的下场：取消收藏变成收藏，而且照样回 200
+  assert.equal(upstream(false), true, '这就是当初的 bug')
+
+  // 过一遍 boolFlag 之后才是对的
+  assert.equal(upstream(boolFlag(false)), false)
+  assert.equal(upstream(boolFlag(true)), true)
 })
