@@ -143,6 +143,15 @@ export function slimRecord(res, 周榜) {
 // 原来只剥了第一种，第二种整串漏了出去。这里把富文本行还原成人话——只拼
 // tx，图片和跳转链接一并丢掉：读歌词的人不需要作词人的头像。
 //
+// 制作人员名单：作词作曲编曲、吉他贝斯鼓键盘、混音母带……读歌词的人要的是
+// 正文，不是配乐名单。
+//
+// ⚠ 判据必须是角色白名单，不能是「凡是带冒号的行就删」——歌词里真的会出现
+// 冒号（对白、旁白、「他说：」）。宁可漏掉几个没收录的冷门角色，也不能吃掉
+// 一句正文：多留一行是多几个 token，吃掉一行是把歌词改错了。
+const 制作人员行 =
+  /^\s*(作词|作曲|编曲|填词|谱曲|制作人|出品人|监制|统筹|企划|策划|发行|出品|录音|混音|母带|后期|和声|配唱|演唱|原唱|吉他|电吉他|木吉他|贝斯|鼓|架子鼓|键盘|钢琴|合成器|弦乐|大提琴|小提琴|长笛|萨克斯|唢呐|二胡|古筝|琵琶|竹笛|笛子|词|曲|编|制作|音乐制作|录音室|混音室|母带后期处理|特别鸣谢|鸣谢|OP|SP|Producer|Composer|Lyricist|Arranger|Mixing|Mastering|Recording|Guitar|Bass|Drums|Keyboard|Piano|Strings|Vocal)\s*[:：]/i
+
 // 不是合法 JSON 就原样留着。看不懂的东西宁可原样交出去，也不要猜着改。
 function plainLine(line) {
   if (!line.startsWith('{')) return line
@@ -156,11 +165,17 @@ function plainLine(line) {
 }
 
 export function stripTimestamps(lrc) {
-  return lrc
+  const 全部 = lrc
     .split('\n')
     .map((line) => plainLine(line.replace(/^(\[[\d:.]+\])+/, '').trim()))
     .filter(Boolean)
-    .join('\n')
+  const 正文 = 全部.filter((line) => !制作人员行.test(line))
+  // 整首都被判成制作人员名单时，别交一片空白出去——那等于说「这首歌没歌词」，
+  // 而真相是「我把它全过滤掉了」。这两件事必须分得清。
+  if (全部.length && !正文.length) {
+    return 全部.join('\n')
+  }
+  return 正文.join('\n')
 }
 
 // 写操作（收藏、建歌单、加歌、删歌单、删评论）成功时只需要回答一件事：成了。

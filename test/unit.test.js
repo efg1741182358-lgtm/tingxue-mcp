@@ -361,20 +361,21 @@ test('stripTimestamps：制作人员那行是富文本 JSON，要还原成人话
   const line =
     '{"t":0,"c":[{"tx":"作词: "},{"tx":"余翊","li":"http://p1.music.126.net/a.jpg",' +
     '"or":"orpheus://sharenoresult?type=artist&id=123"}]}'
-  assert.equal(stripTimestamps(line), '作词: 余翊')
+  // 先还原成人话，再按制作人员名单丢掉——但正文行还在时才丢，见下面那条
+  assert.equal(stripTimestamps(line + '\n[00:01.00]正文'), '正文')
 })
 
 test('stripTimestamps：头像 URL 和 orpheus 跳转链接不许漏进上下文', () => {
   const line = '{"t":0,"c":[{"tx":"吉他: "},{"tx":"王五","li":"http://p2.music.126.net/x.jpg"}]}'
-  const out = stripTimestamps(line)
-  assert.equal(out, '吉他: 王五')
+  const out = stripTimestamps(line + '\n[00:01.00]正文')
+  assert.equal(out, '正文')
   assert.ok(!out.includes('http'), '图片 URL 漏出来了')
   assert.ok(!out.includes('orpheus'), 'orpheus 链接漏出来了')
 })
 
 test('stripTimestamps：一行里多个 tx 段要按顺序拼起来', () => {
   const line = '{"t":0,"c":[{"tx":"吉他: "},{"tx":"王五"},{"tx":" / 贝斯: "},{"tx":"赵六"}]}'
-  assert.equal(stripTimestamps(line), '吉他: 王五 / 贝斯: 赵六')
+  assert.equal(stripTimestamps(line + '\n[00:01.00]正文'), '正文')
 })
 
 test('stripTimestamps：不是合法 JSON 就原样留着，不猜着改', () => {
@@ -387,4 +388,24 @@ test('stripTimestamps：正文行不受影响（回归）', () => {
     stripTimestamps('[00:11.370]他朝若是同淋雪\n[00:15.200]此生也算共白头'),
     '他朝若是同淋雪\n此生也算共白头',
   )
+})
+
+test('stripTimestamps：制作人员名单整段丢掉，只留正文', () => {
+  const lrc = [
+    '{"t":0,"c":[{"tx":"作词: "},{"tx":"余翊"}]}',
+    '[00:00.000] 编曲 : 李四',
+    '[00:11.370]他朝若是同淋雪',
+    '[00:15.200]此生也算共白头',
+    '[00:30.000]混音 : 孙七',
+  ].join('\n')
+  assert.equal(stripTimestamps(lrc), '他朝若是同淋雪\n此生也算共白头')
+})
+
+test('stripTimestamps：歌词里的冒号不许被当成制作人员行吃掉', () => {
+  const lrc = '[00:19.100]他说：等一场雪\n[00:23.000]我说：好\n[00:25.000]于是：我们等'
+  assert.equal(stripTimestamps(lrc), '他说：等一场雪\n我说：好\n于是：我们等')
+})
+
+test('stripTimestamps：整首都是名单时不能交白卷（那等于谎称没歌词）', () => {
+  assert.equal(stripTimestamps('[00:00.00]作词 : 甲\n[00:01.00]作曲 : 乙'), '作词 : 甲\n作曲 : 乙')
 })
