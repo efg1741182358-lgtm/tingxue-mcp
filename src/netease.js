@@ -9,7 +9,7 @@ const REAL_IP = process.env.REAL_IP || '116.25.146.177'
 // NeteaseCloudMusicApi 失败时 reject 的是普通对象 {status, body}，不是 Error。
 // 直接往上抛的话，错误信息会变成 "[object Object]"，等于没有信息。
 // 这里翻译成人能读的话，并把几个最常见的坑单独点名。
-function explain(err) {
+export function explain(err) {
   const status = err?.status
   const code = err?.body?.code
   const msg = err?.body?.msg || err?.body?.message || err?.message
@@ -24,33 +24,59 @@ function explain(err) {
   if (status === 403 || code === 403 || /\b403\b/.test(String(msg))) {
     return '请求被网易云或中间网络拒绝 (403)。检查两处：部署环境能否访问 music.163.com；REAL_IP 是否为有效的国内 IP。'
   }
+  if (code === 401) {
+    return '没有操作权限 (401)。最常见的原因：这个歌单不是本账号创建的，只能读不能改。'
+  }
+  if (code === 250) {
+    return '被网易云限流或判定为异常操作 (250)。等一会儿再试，别连着刷。'
+  }
+  if (code === -2) {
+    return '内容被拒绝 (-2)。评论重复、含敏感词或发得太频繁时会这样。'
+  }
   return `网易云接口失败（status=${status ?? '?'} code=${code ?? '?'}）：${msg || '无详细信息'}`
 }
 
-async function call(name, params = {}) {
+// 上游有一批接口会把失败吞成 HTTP 200，真正的错误码藏在 body.code 里。
+// 最典型的是 playlist_tracks：源码里 catch 之后原样 `return { status: 200, body: error.body }`。
+// 只看 res.body 而不看 code，等于把失败当成功往上报——工具一旦会撒谎，
+// 模型就会基于假成功继续往下做。所以这里统一把 code 当成结果的一部分校验。
+//
+// opts.raw：留给那些「非 200 是正常业务语义」的接口，目前只有扫码轮询
+// （800 过期 / 801 等待 / 802 已扫 / 803 成功，全都不是错误）。
+async function call(name, params = {}, opts = {}) {
   const fn = NCM[name]
   if (typeof fn !== 'function') {
     throw new Error(`未知接口：${name}`)
   }
+  let body
   try {
     const res = await fn({
       ...params,
       cookie: params.cookie ?? session.getCookie(),
       realIP: REAL_IP,
     })
-    return res.body
+    body = res.body
   } catch (err) {
     const e = new Error(explain(err))
     e.cause = err
     throw e
   }
+
+  const code = body?.code
+  if (!opts.raw && code != null && code !== 200) {
+    const e = new Error(explain({ status: 200, body }))
+    e.cause = body
+    throw e
+  }
+  return body
 }
 
 export const api = {
   // --- 登录 ---
   qrKey: () => call('login_qr_key'),
   qrCreate: (key) => call('login_qr_create', { key, qrimg: true }),
-  qrCheck: (key) => call('login_qr_check', { key }),
+  // 扫码轮询的 800/801/802/803 都是正常状态，不能当错误抛
+  qrCheck: (key) => call('login_qr_check', { key }, { raw: true }),
   loginStatus: () => call('login_status'),
   loginRefresh: () => call('login_refresh'),
   userAccount: () => call('user_account'),
@@ -79,9 +105,8 @@ export const api = {
   sendSong: (userIds, id, msg) => call('send_song', { user_ids: userIds, id, msg }),
 
   // --- 一起听 ---
+  // 只有查状态。遥控切歌（listentogether_play_command）已实测无效，见 README。
   listenTogetherStatus: () => call('listentogether_status'),
-  listenTogetherPlayCommand: (params) =>
-    call('listentogether_play_command', params),
 }
 
 export { call }
