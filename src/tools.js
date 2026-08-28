@@ -458,7 +458,11 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       description: '新建歌单，返回 pid。',
       inputSchema: {
         name: z.string().describe('歌单名'),
-        private: z.boolean().default(false).describe('true=隐私歌单'),
+        // 默认隐私。上游 playlist_create 的默认是 privacy:'0'（公开），
+        // 我们显式反过来：由模型代建的歌单出现在别人能看见的地方，
+        // 应该是调用方明确要求的结果，不该是忘了传参数的结果。
+        // 公开是一个对外动作，对外动作要显式说出口。
+        private: z.boolean().default(true).describe('隐私歌单（默认）。传 false 才公开'),
       },
     },
     async ({ name, private: isPrivate }) => {

@@ -477,3 +477,4 @@ test('slimRoom 仍然带 在一起听 / 对方设备，没被重构改坏', () =
   assert.equal(out.房间id, 'r-1')
   assert.equal(out.对方设备, 'iOS 9.0.0')
 })
+
