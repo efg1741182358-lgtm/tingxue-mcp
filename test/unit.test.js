@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 
 import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
 import {
-  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, slimTracks, slimRecord, GROUPS,
+  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, slimTracks, slimRecord, roomIdOf, GROUPS,
 } from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
@@ -123,7 +123,9 @@ test('enabledTools：按组启用，没启用的工具连定义都不该出现',
 
 test('enabledTools：也接受单个工具名，认不出的忽略掉但不炸', () => {
   const on = enabledTools('search_song, 不存在的东西 ,together')
-  assert.deepEqual([...on].sort(), ['listen_together_status', 'search_song'])
+  assert.deepEqual([...on].sort(), [...GROUPS.together, 'search_song'].sort())
+  assert.ok(on.has('search_song'))
+  assert.ok(!on.has('不存在的东西'))
 })
 
 test('boolFlag：布尔转字符串', () => {
@@ -338,4 +340,19 @@ test('playlist_songs 跟建歌单/加歌在同一组——造得出就得看得�
   assert.ok(GROUPS.library.includes('playlist_songs'))
   assert.ok(GROUPS.library.includes('create_playlist'))
   assert.ok(GROUPS.record.includes('listening_record'))
+})
+
+test('roomIdOf：房间号在哪一层都认，认不出就是 null 不是瞎编', () => {
+  assert.equal(roomIdOf({ data: { roomInfo: { roomId: 'a_1' } } }), 'a_1')
+  assert.equal(roomIdOf({ data: { roomId: 'b_2' } }), 'b_2')
+  assert.equal(roomIdOf({ roomId: 'c_3' }), 'c_3')
+  assert.equal(roomIdOf({ code: 200 }), null)
+  assert.equal(roomIdOf(null), null)
+})
+
+test('一起听：查/建/结束跟状态在同一组——建得出就得关得掉', () => {
+  for (const t of ['listen_together_status', 'listen_together_create',
+                   'listen_together_check', 'listen_together_end']) {
+    assert.ok(GROUPS.together.includes(t), t)
+  }
 })

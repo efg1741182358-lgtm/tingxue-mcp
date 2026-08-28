@@ -23,7 +23,10 @@ export const GROUPS = {
   ],
   record: ['listening_record'],
   social: ['write_comment', 'my_comments', 'delete_comment', 'send_message'],
-  together: ['listen_together_status'],
+  together: [
+    'listen_together_status', 'listen_together_create',
+    'listen_together_check', 'listen_together_end',
+  ],
   status: ['login_status'],
 }
 
@@ -214,6 +217,14 @@ export function slimMessage(res) {
   }
 }
 
+// room_create / room_check 的返回结构没能在开发机上跑通（出网白名单不含
+// music.163.com），下面几层是照 listentogether_status 的形状推的。
+// roomId 是这两个工具唯一有用的产出——拿不到它，房间就既找不着也关不掉。
+export function roomIdOf(res) {
+  const d = res?.data ?? res
+  return d?.roomInfo?.roomId ?? d?.roomId ?? res?.roomId ?? null
+}
+
 // 一起听的原始返回里，两个人各带一整套头像挂件（安卓/iOS/PC/循环共四个 URL），
 // 加起来一千多 token，而真正有用的就下面这几行。
 export function slimRoom(res) {
@@ -241,6 +252,38 @@ export function slimRoom(res) {
       ? `${d.anotherDeviceInfo.osType} ${d.anotherDeviceInfo.appVersion}`
       : null,
   }
+}
+
+// tools/list 每一轮都进模型上下文，而 SDK 生成的这份 JSON 里有三样东西
+// 在每个工具上一字不差地重复：
+//   · "$schema": "http://json-schema.org/draft-07/schema#"   ×工具数  ≈195
+//   · "execution": { "taskSupport": "forbidden" }            ×工具数  ≈150
+//   · "title"（信息已经在 name + description 里）             ×工具数  ≈101
+// 合计 446 token/轮，占全部固定开销的 26%，而它们不携带任何本服务特有的信息。
+//
+// 三者里只有 execution 带一点语义：声明「本工具不能当后台任务跑」。协议里是
+// 可选字段，去掉等于「没有意见」；我们的工具都是几百毫秒的 HTTP 调用，当不当
+// 任务跑都无所谓。想改回来，把下面对应那一行去掉即可。
+//
+// ⚠ 这里动的是 SDK 的私有字段 _requestHandlers。拿不到就安静跳过——
+// 省 token 是锦上添花，为它把服务搞挂就本末倒置了。
+function stripBoilerplate(server) {
+  const handlers = server?.server?._requestHandlers
+  const 原handler = handlers?.get?.('tools/list')
+  if (typeof 原handler !== 'function') return false
+  handlers.set('tools/list', async (req, extra) => {
+    const res = await 原handler(req, extra)
+    if (!Array.isArray(res?.tools)) return res
+    return {
+      ...res,
+      tools: res.tools.map(({ title, execution, ...t }) => {
+        if (!t.inputSchema) return t
+        const { $schema, ...schema } = t.inputSchema
+        return { ...t, inputSchema: schema }
+      }),
+    }
+  })
+  return true
 }
 
 export function registerTools(server, only = DEFAULT_ONLY) {
@@ -503,6 +546,70 @@ export function registerTools(server, only = DEFAULT_ONLY) {
   )
 
   add(
+    'listen_together_create',
+    {
+      title: '发起一起听',
+      description: '发起一起听，建一个新房间。邀请对方加入这一步上游没有接口。',
+      inputSchema: {
+        force: z.boolean().default(false).describe('已在房间里时也要新建'),
+      },
+    },
+    async ({ force }) => {
+      requireLogin()
+      // 一个账号同一时间只能在一个一起听房间里，所以建新房间会顶掉旧的，
+      // 而且没有撤销——end 只能关，不能复活。一个开了很久的房间可能是
+      // 别人在意的东西，不该被一次手滑的调用清掉。默认先看一眼再说。
+      if (!force) {
+        const 现状 = slimRoom(await api.listenTogetherStatus())
+        if (现状.在一起听) {
+          return text({
+            没有新建: '现在已经在一个房间里了，新建会把它顶掉，而且关掉就回不来。确定要建的话把 force 设成 true。',
+            当前房间: 现状,
+          })
+        }
+      }
+      const res = await api.listenTogetherCreate()
+      const 房间id = roomIdOf(res)
+      if (!房间id) {
+        // 这里最忌讳报「失败」：房间可能已经建出来了，只是我没认出号在哪一层。
+        // 说成失败会让调用方再建一次，于是又顶掉一个房间。
+        return text({
+          结果: '接口回来了，但没认出房间号在哪一层。房间可能已经建好了——先用 listen_together_status 看一眼，不要直接重建。',
+          顶层字段: Object.keys(res || {}),
+        })
+      }
+      return text(ack('发起一起听', { 房间id, 说明: '把对方拉进来这一步上游没有接口，得对方自己进。' }))
+    },
+  )
+
+  add(
+    'listen_together_check',
+    {
+      title: '查某个房间',
+      description: '按 roomId 查房间情况。查自己当前状态用 listen_together_status。',
+      inputSchema: { roomId: z.string() },
+    },
+    async ({ roomId }) => {
+      requireLogin()
+      return text(await api.listenTogetherCheck(roomId))
+    },
+  )
+
+  add(
+    'listen_together_end',
+    {
+      title: '结束一起听',
+      description: '结束一起听房间。关了就回不来，roomId 要显式给。',
+      inputSchema: { roomId: z.string() },
+    },
+    async ({ roomId }) => {
+      requireLogin()
+      await api.listenTogetherEnd(roomId)
+      return text(ack('结束一起听', { 房间id: roomId }))
+    },
+  )
+
+  add(
     'login_status',
     {
       title: '登录状态',
@@ -521,5 +628,6 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     },
   )
 
+  stripBoilerplate(server)
   return registered
 }

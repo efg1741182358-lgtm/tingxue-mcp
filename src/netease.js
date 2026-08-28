@@ -162,6 +162,9 @@ export const api = {
   // --- 一起听 ---
   // 只有查状态。遥控切歌（listentogether_play_command）已实测无效，见 README。
   listenTogetherStatus: () => call('listentogether_status'),
+  listenTogetherCreate: () => call('listentogether_room_create'),
+  listenTogetherCheck: (roomId) => call('listentogether_room_check', { roomId }),
+  listenTogetherEnd: (roomId) => call('listentogether_end', { roomId }),
 }
 
 export { call }
