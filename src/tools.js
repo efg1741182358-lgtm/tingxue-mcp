@@ -266,11 +266,9 @@ export function roomIdOf(res) {
 
 // 一起听的原始返回里，两个人各带一整套头像挂件（安卓/iOS/PC/循环共四个 URL），
 // 加起来一千多 token，而真正有用的就下面这几行。
-export function slimRoom(res) {
-  const d = res?.data
-  if (!d?.inRoom) return { 在一起听: false, 说明: '当前没有进行中的一起听房间' }
-
-  const info = d.roomInfo || {}
+// 房间信息里真正有用的就这几样。原始返回里两个人各带四个挂件 URL、
+// 头像地址和一串设备资料，一千多 token，没有一个字进得了对话。
+export function trimRoomInfo(info = {}) {
   const started = info.roomCreateTime ? new Date(info.roomCreateTime) : null
   let 已持续
   if (started) {
@@ -278,19 +276,51 @@ export function slimRoom(res) {
     const h = Math.floor(ms / 3.6e6)
     已持续 = `${Math.floor(h / 24)} 天 ${h % 24} 小时`
   }
-
   return {
-    在一起听: true,
-    状态: d.status,
     房间id: info.roomId,
     房间类型: info.roomType,
     成员: (info.roomUsers || []).map((u) => ({ uid: u.userId, 昵称: u.nickname })),
     开始时间: started ? started.toISOString() : null,
     已持续,
+  }
+}
+
+export function slimRoom(res) {
+  const d = res?.data
+  if (!d?.inRoom) return { 在一起听: false, 说明: '当前没有进行中的一起听房间' }
+  return {
+    在一起听: true,
+    状态: d.status,
+    ...trimRoomInfo(d.roomInfo || {}),
     对方设备: d.anotherDeviceInfo
       ? `${d.anotherDeviceInfo.osType} ${d.anotherDeviceInfo.appVersion}`
       : null,
   }
+}
+
+// listen_together_check 按 roomId 查任意房间。它的返回结构**我们没有实测过**：
+// status 是 { data: { inRoom, roomInfo } }，check 未必一样，而这台开发机
+// 连不上 music.163.com，猜不出来。
+//
+// 所以这里只做「认得出就裁，认不出就原样交出去」。猜着裁会把不认识的字段
+// 悄悄吃掉——那比多给几个字段糟得多，跟歌词那边守的是同一条：看不懂的东西
+// 宁可原样交出去，也不要猜着改。
+//
+// 认不出时会把顶层字段名一并报出来，方便照着补一条分支。
+export function slimRoomCheck(res) {
+  const info =
+    res?.data?.roomInfo ||
+    res?.roomInfo ||
+    (res?.data?.roomId ? res.data : null) ||
+    (res?.roomId ? res : null)
+  if (!info) {
+    return {
+      结果: '接口回来了，但没认出房间结构，下面是原样返回',
+      顶层字段: Object.keys(res || {}),
+      原始返回: res,
+    }
+  }
+  return trimRoomInfo(info)
 }
 
 // tools/list 每一轮都进模型上下文，而 SDK 生成的这份 JSON 里有三样东西
@@ -630,7 +660,7 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     },
     async ({ roomId }) => {
       requireLogin()
-      return text(await api.listenTogetherCheck(roomId))
+      return text(slimRoomCheck(await api.listenTogetherCheck(roomId)))
     },
   )
 

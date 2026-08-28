@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 
 import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
 import {
-  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, slimTracks, slimRecord, roomIdOf, GROUPS,
+  slimSongs, mmss, slimRoom, slimRoomCheck, trimRoomInfo, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, slimTracks, slimRecord, roomIdOf, GROUPS,
 } from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
@@ -408,4 +408,72 @@ test('stripTimestamps：歌词里的冒号不许被当成制作人员行吃掉',
 
 test('stripTimestamps：整首都是名单时不能交白卷（那等于谎称没歌词）', () => {
   assert.equal(stripTimestamps('[00:00.00]作词 : 甲\n[00:01.00]作曲 : 乙'), '作词 : 甲\n作曲 : 乙')
+})
+
+
+// --- listen_together_check ---
+// 这个接口的真实返回结构没有实测过（开发机连不上 music.163.com）。
+// 所以测的是「认得出就裁、认不出就原样交出去」这条行为契约本身，
+// 而不是假装知道上游长什么样。
+
+test('slimRoomCheck：认得出结构时裁掉挂件噪音，只留房间要点', () => {
+  const 上游 = {
+    data: {
+      roomInfo: {
+        roomId: 'r-123',
+        roomType: 'FRIEND',
+        roomCreateTime: Date.now() - 3 * 86400_000 - 5 * 3600_000,
+        roomUsers: [
+          { userId: 1, nickname: '甲', avatarUrl: 'http://…', pendants: ['a', 'b', 'c', 'd'] },
+          { userId: 2, nickname: '乙', avatarUrl: 'http://…', vipType: 11 },
+        ],
+      },
+    },
+  }
+  const out = slimRoomCheck(上游)
+  assert.equal(out.房间id, 'r-123')
+  assert.equal(out.已持续, '3 天 5 小时')
+  assert.deepEqual(out.成员, [{ uid: 1, 昵称: '甲' }, { uid: 2, 昵称: '乙' }])
+  // 挂件、头像、会员等级一个都不该留下
+  assert.equal(JSON.stringify(out).includes('avatarUrl'), false)
+  assert.equal(JSON.stringify(out).includes('pendants'), false)
+  assert.equal(JSON.stringify(out).includes('vipType'), false)
+})
+
+test('slimRoomCheck：roomInfo 直接挂在顶层时也认得出', () => {
+  const out = slimRoomCheck({ roomId: 'r-9', roomUsers: [{ userId: 7, nickname: '丙' }] })
+  assert.equal(out.房间id, 'r-9')
+  assert.deepEqual(out.成员, [{ uid: 7, 昵称: '丙' }])
+})
+
+test('slimRoomCheck：认不出结构时原样交出去，并报出字段名', () => {
+  const 陌生 = { code: 200, 某个没见过的层: { roomLike: 1 } }
+  const out = slimRoomCheck(陌生)
+  // 不许假装裁好了——猜着裁会把不认识的字段悄悄吃掉
+  assert.equal(out.房间id, undefined)
+  assert.deepEqual(out.顶层字段, ['code', '某个没见过的层'])
+  assert.deepEqual(out.原始返回, 陌生)
+  assert.match(out.结果, /没认出/)
+})
+
+test('trimRoomInfo：空对象不炸，也不编造字段', () => {
+  const out = trimRoomInfo({})
+  assert.equal(out.房间id, undefined)
+  assert.deepEqual(out.成员, [])
+  assert.equal(out.开始时间, null)
+})
+
+test('slimRoom 仍然带 在一起听 / 对方设备，没被重构改坏', () => {
+  const out = slimRoom({
+    data: {
+      inRoom: true,
+      status: 'CONNECTED',
+      roomInfo: { roomId: 'r-1', roomUsers: [], roomCreateTime: Date.now() - 3600_000 },
+      anotherDeviceInfo: { osType: 'iOS', appVersion: '9.0.0' },
+    },
+  })
+  assert.equal(out.在一起听, true)
+  assert.equal(out.状态, 'CONNECTED')
+  assert.equal(out.房间id, 'r-1')
+  assert.equal(out.对方设备, 'iOS 9.0.0')
 })
