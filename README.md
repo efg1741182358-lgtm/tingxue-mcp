@@ -98,12 +98,43 @@ https://你的域名/mcp
 
 ## 本地跑
 
+不想部署到服务器的话，整套东西在自己电脑上就能跑起来。
+
 ```bash
-cp .env.example .env   # 改里面的口令
+cp .env.example .env
 npm install
 npm start              # 默认 http://localhost:8080
 npm test               # 纯函数单元测试，不碰网络
 ```
+
+启动后打开 <http://localhost:8080/login>，用网易云 App 扫码。登录态写在
+`./data`（已在 `.gitignore` 里），重启不丢。
+
+本地跑的三处不同：
+
+- **`PUBLIC_URL` 不用填。** 不填就自动用 `http://localhost:8080`。
+- **`AUTH_PASSWORD` 可以不填。** 不填则 `/mcp` 不鉴权——**只在本机监听时才可以这样**，
+  一旦你把端口转发出去或者放进公网，立刻补上。
+- **本机就在国内的话，`.env` 里写一行空的 `REAL_IP=`。** 注意是「写了但留空」，
+  不是「整行删掉」：整行删掉会被当成「忘了配」，用文档里那个示例地址顶着跑；
+  写成空才是明确告诉它一个字都别注入。你本来就在国内，不需要伪造出口 IP。
+
+### 怎么连上去
+
+在**同一台机器上**跑的客户端（Claude Code、桌面端）可以直接连：
+
+```
+http://localhost:8080/mcp
+```
+
+Claude Code 里加一个 HTTP 类型的 MCP server 指向这个地址即可。没设
+`AUTH_PASSWORD` 就不会要授权。
+
+**claude.ai 网页版连不上 localhost。** 网页版的远程连接器是从 Anthropic 的
+服务器出站来连你填的地址的，`localhost` 在那边指的是他们自己的机器。所以
+想挂到网页版，地址必须公网可达——要么部署到服务器（见上面「部署」一节），
+要么用内网穿透把本地端口暴露出去，那种情况下 `PUBLIC_URL` 填穿透给的域名，
+并且 **`AUTH_PASSWORD` 必须设**。
 
 ## 已知限制
 

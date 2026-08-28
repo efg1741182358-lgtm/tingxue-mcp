@@ -9,14 +9,21 @@ import * as session from './session.js'
 // 谁也不知道自己在用它——那意味着每一份部署都从同一个地址出站，那个地址
 // 迟早被限流，然后是所有人一起挂，而且各自都查不出原因。
 // 没设就在启动时喊一声，用示例地址顶着跑，但必须让人知道自己在顶着跑。
+// 区分「没设」和「设成空」：
+//   没设   → 用示例地址顶着跑，并且喊一声。
+//   设成空 → 一个字都不注入。本机就在国内时要的正是这个——伪造一个别人的
+//            出口 IP 只会让请求看起来更可疑，而这里本来就不需要伪造。
 const FALLBACK_REAL_IP = '116.25.146.177'
-const REAL_IP = process.env.REAL_IP || FALLBACK_REAL_IP
+const REAL_IP = 'REAL_IP' in process.env
+  ? process.env.REAL_IP.trim()
+  : FALLBACK_REAL_IP
 
-if (!process.env.REAL_IP) {
+if (!('REAL_IP' in process.env)) {
   console.warn(
     `[warn] REAL_IP 未设置，暂用文档里的示例地址 ${FALLBACK_REAL_IP}。\n` +
     '       这个地址被所有未配置的部署共享，随时可能被网易云限流。\n' +
-    '       请设置成你自己的国内 IP。'
+    '       境外部署请填自己的国内 IP；本机就在国内的话，写一行空的\n' +
+    '       REAL_IP= 即可完全不注入。'
   )
 }
 
@@ -96,7 +103,7 @@ async function call(name, params = {}, opts = {}) {
     const res = await fn({
       ...params,
       cookie: params.cookie ?? session.getCookie(),
-      realIP: REAL_IP,
+      ...(REAL_IP ? { realIP: REAL_IP } : {}),
     })
     body = res.body
   } catch (err) {
