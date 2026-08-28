@@ -133,9 +133,12 @@ export const api = {
   playlistTracks: (op, pid, tracks) =>
     call('playlist_tracks', { op, pid, tracks }),
   userPlaylist: (uid, limit = 50) => call('user_playlist', { uid, limit }),
+  playlistDelete: (id) => call('playlist_delete', { id }),
 
   // --- 评论 ---
   // t: 1=发送 0=删除 2=回复；type: 0=歌曲 2=歌单 ...
+  // 删除要额外给 commentId——所以发评论时必须把 id 交出来，
+  // 否则「发得出撤不回」。
   comment: (params) => call('comment', params),
 
   // --- 歌词 ---

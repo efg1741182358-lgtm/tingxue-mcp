@@ -4,7 +4,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
-import { slimSongs, mmss, slimRoom, stripTimestamps, enabledTools } from '../src/tools.js'
+import {
+  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, GROUPS,
+} from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
   // playlist_tracks 往别人的歌单里加歌，就是这个形状
@@ -168,4 +170,32 @@ test('stripCookie：凭证不进模型上下文', () => {
   assert.deepEqual(stripCookie({ code: 200, cookie: ['NMTID=xxx'] }), { code: 200 })
   assert.deepEqual(stripCookie({ code: 200 }), { code: 200 })
   assert.equal(stripCookie(null), null)
+})
+
+test('slimComment：只留 commentId 和正文，不要发布者那一大坨资料', () => {
+  const out = slimComment({
+    code: 200,
+    comment: {
+      commentId: 12345678,
+      content: '测试',
+      user: { nickname: '某人', avatarUrl: 'http://…', vipRights: {}, expertTags: null },
+      time: 1787893661884,
+      likedCount: 0,
+    },
+  })
+  assert.deepEqual(out, { 评论id: 12345678, 内容: '测试' })
+})
+
+test('slimComment：拿不到 commentId 要明说「删不掉了」，不能假装成功', () => {
+  const out = slimComment({ code: 200 })
+  assert.match(out.结果, /删不掉/)
+})
+
+test('删除类工具跟对应的创建工具在同一组，不会出现开了创建没开删除', () => {
+  assert.ok(GROUPS.library.includes('create_playlist'))
+  assert.ok(GROUPS.library.includes('delete_playlist'))
+  assert.ok(GROUPS.social.includes('write_comment'))
+  assert.ok(GROUPS.social.includes('delete_comment'))
+  const on = enabledTools('library')
+  assert.ok(on.has('delete_playlist'))
 })

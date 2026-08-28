@@ -12,7 +12,9 @@
 | `my_playlists` | 列出自己的歌单（拿 pid） |
 | `create_playlist` | 新建歌单 |
 | `add_to_playlist` | 歌曲加入 / 移出歌单 |
-| `write_comment` | 给歌曲或歌单发评论 |
+| `delete_playlist` | 删除自己的歌单 |
+| `write_comment` | 给歌曲或歌单发评论，返回评论 id |
+| `delete_comment` | 删掉自己发过的评论 |
 | `send_message` | 给某人发私信，可附一首歌 |
 | `listen_together_status` | 查看「一起听」房间状态 |
 | `login_status` | 查当前登录的账号 |
@@ -99,14 +101,15 @@ test/
 ## 省 token
 
 工具定义（`tools/list` 的内容）会被塞进模型**每一轮**的上下文——不管这轮
-聊不聊音乐，只要连接器挂着就得付。全开是约 **1300 token 的固定开销**，
+聊不聊音乐，只要连接器挂着就得付。全开是约 **1600 token 的固定开销**，
 对免费额度来说不是小数目。
 
 用 `TOOLS` 只启用需要的组，没启用的工具连定义都不会出现：
 
 | `TOOLS` | 工具数 | 每轮固定开销 |
 |---|---:|---:|
-| 不设置（全开） | 10 | ~1318 |
+| 不设置（全开） | 12 | ~1594 |
+| `library` | 5 | ~629 |
 | `search,lyric,together` | 3 | ~356 |
 | `search,lyric` | 2 | ~264 |
 
@@ -123,6 +126,14 @@ test/
 - **搜歌默认只回 5 条**（上限 20）。
 - **歌单只列本账号创建的**——收藏来的别人的歌单本来也改不了。
 - **一起听状态丢掉头像挂件**：原始返回里两个人各带四个挂件 URL，一千多 token。
+
+### 一条对称性要求
+
+**凡是能造的，必须能毁。** `create_playlist` 配 `delete_playlist`，
+`write_comment` 配 `delete_comment`，而且 `write_comment` 必须把
+`commentId` 返回出来——否则「发得出、撤不回」，评论还是公开的、落在
+本人账号名下。删除工具和对应的创建工具放在同一个 `TOOLS` 组里，
+不会出现「开了创建没开删除」的配置。
 
 ### 一条反直觉的经验
 

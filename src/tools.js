@@ -17,8 +17,8 @@ import * as session from './session.js'
 export const GROUPS = {
   search: ['search_song'],
   lyric: ['get_lyric'],
-  library: ['like_song', 'my_playlists', 'create_playlist', 'add_to_playlist'],
-  social: ['write_comment', 'send_message'],
+  library: ['like_song', 'my_playlists', 'create_playlist', 'add_to_playlist', 'delete_playlist'],
+  social: ['write_comment', 'delete_comment', 'send_message'],
   together: ['listen_together_status'],
   status: ['login_status'],
 }
@@ -86,6 +86,14 @@ export function stripTimestamps(lrc) {
     .map((line) => line.replace(/^(\[[\d:.]+\])+/, '').trim())
     .filter(Boolean)
     .join('\n')
+}
+
+// 评论发出后原样返回一大坨（含发布者头像、等级、会员信息……）。
+// 只留下真正有用的那一个：commentId。没有它就删不掉自己刚发的评论。
+export function slimComment(res) {
+  const c = res?.comment
+  if (!c?.commentId) return { 结果: '已提交，但上游没有返回评论 id（就删不掉了）', 原始: res }
+  return { 评论id: c.commentId, 内容: c.content }
 }
 
 // 一起听的原始返回里，两个人各带一整套头像挂件（安卓/iOS/PC/循环共四个 URL），
@@ -226,6 +234,19 @@ export function registerTools(server, only = DEFAULT_ONLY) {
   )
 
   add(
+    'delete_playlist',
+    {
+      title: '删除歌单',
+      description: '删掉自己的歌单。删了拿不回来。',
+      inputSchema: { pid: z.number().int().describe('歌单 id') },
+    },
+    async ({ pid }) => {
+      requireLogin()
+      return text(await api.playlistDelete(pid))
+    },
+  )
+
+  add(
     'write_comment',
     {
       title: '写评论',
@@ -239,7 +260,28 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     async ({ id, content, type }) => {
       requireLogin()
       return text(
-        await api.comment({ t: 1, type: type === 'song' ? 0 : 2, id, content }),
+        slimComment(
+          await api.comment({ t: 1, type: type === 'song' ? 0 : 2, id, content }),
+        ),
+      )
+    },
+  )
+
+  add(
+    'delete_comment',
+    {
+      title: '删除评论',
+      description: '删掉自己发过的一条评论。commentId 由 write_comment 返回。',
+      inputSchema: {
+        id: z.number().int().describe('被评论的歌曲或歌单 id'),
+        commentId: z.number().int().describe('评论 id'),
+        type: z.enum(['song', 'playlist']).default('song'),
+      },
+    },
+    async ({ id, commentId, type }) => {
+      requireLogin()
+      return text(
+        await api.comment({ t: 0, type: type === 'song' ? 0 : 2, id, commentId }),
       )
     },
   )
