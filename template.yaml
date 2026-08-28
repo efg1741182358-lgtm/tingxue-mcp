@@ -1,0 +1,54 @@
+# Zeabur 一键部署模板
+#
+# 注意：本文件基于 Zeabur 官方文档结构编写，尚未实机验证。
+# 部署失败时可改用手动流程（见 README「部署」一节），效果相同。
+apiVersion: zeabur.com/v1
+kind: Template
+metadata:
+  name: netease-mcp
+spec:
+  description: 网易云音乐 MCP 服务，可作为 claude.ai 远程连接器挂载
+  tags:
+    - MCP
+    - Music
+
+  # 部署时向用户提问，填完自动注入到服务
+  variables:
+    - key: PUBLIC_DOMAIN
+      type: DOMAIN
+      name: 服务域名
+      description: 给这个服务分配的域名，OAuth 回调会用到
+    - key: AUTH_PASSWORD
+      type: STRING
+      name: 访问口令
+      description: 挂载连接器时在授权页输入的口令。设长一点，这是唯一的门。
+
+  services:
+    - name: netease-mcp
+      template: GIT
+      spec:
+        source:
+          type: GITHUB
+          repoID: efg1741182358-lgtm/-mcp-
+          branch: claude/netease-mcp-v1
+          dockerfile: Dockerfile
+        ports:
+          - id: web
+            port: 8080
+            type: HTTP
+        # 登录态存这里。不挂卷的话每次重启都要重新扫码。
+        volumes:
+          - id: data
+            dir: /app/data
+        env:
+          PORT:
+            default: "8080"
+          DATA_DIR:
+            default: /app/data
+          PUBLIC_URL:
+            default: https://${PUBLIC_DOMAIN}
+          AUTH_PASSWORD:
+            default: ${AUTH_PASSWORD}
+          # 网易云按 IP 限区，境外机器必须带国内 IP，否则静默返回空结果
+          REAL_IP:
+            default: "116.25.146.177"
