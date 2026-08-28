@@ -8,7 +8,11 @@ import { api } from './netease.js'
 import * as session from './session.js'
 
 const PORT = Number(process.env.PORT || 8080)
-const BASE_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '')
+// 环境变量在各家面板上粘贴时很容易带上首尾空白，而带空格的 issuer
+// 会让 OAuth 客户端拿到畸形 URL、且报错完全不指向真正的原因。这里统一清掉。
+const BASE_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`)
+  .trim()
+  .replace(/\/+$/, '')
 
 const app = express()
 app.use(express.json({ limit: '2mb' }))
@@ -122,4 +126,10 @@ app.listen(PORT, () => {
   if (!process.env.AUTH_PASSWORD) {
     console.warn('  ⚠ 未设置 AUTH_PASSWORD，/mcp 不鉴权，请勿公网暴露')
   }
+  if (!process.env.PUBLIC_URL) {
+    console.warn('  ⚠ 未设置 PUBLIC_URL，OAuth 会指向 localhost，claude.ai 挂不上')
+  } else if (process.env.PUBLIC_URL !== process.env.PUBLIC_URL.trim()) {
+    console.warn('  ⚠ PUBLIC_URL 首尾有空白，已自动清除；建议在面板上一并改掉')
+  }
+  console.log(`  数据目录 ${process.env.DATA_DIR || './data'}（未挂持久卷则重启后需重新扫码）`)
 })
