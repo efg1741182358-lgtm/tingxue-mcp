@@ -26,6 +26,35 @@ function slimSongs(result) {
   }))
 }
 
+// 一起听的原始返回里，两个人各带一整套头像挂件（安卓/iOS/PC/循环共四个 URL），
+// 加起来一千多 token，而真正有用的就下面这几行。
+export function slimRoom(res) {
+  const d = res?.data
+  if (!d?.inRoom) return { 在一起听: false, 说明: '当前没有进行中的一起听房间' }
+
+  const info = d.roomInfo || {}
+  const started = info.roomCreateTime ? new Date(info.roomCreateTime) : null
+  let 已持续
+  if (started) {
+    const ms = Date.now() - started.getTime()
+    const h = Math.floor(ms / 3.6e6)
+    已持续 = `${Math.floor(h / 24)} 天 ${h % 24} 小时`
+  }
+
+  return {
+    在一起听: true,
+    状态: d.status,
+    房间id: info.roomId,
+    房间类型: info.roomType,
+    成员: (info.roomUsers || []).map((u) => ({ uid: u.userId, 昵称: u.nickname })),
+    开始时间: started ? started.toISOString() : null,
+    已持续,
+    对方设备: d.anotherDeviceInfo
+      ? `${d.anotherDeviceInfo.osType} ${d.anotherDeviceInfo.appVersion}`
+      : null,
+  }
+}
+
 export function registerTools(server) {
   server.registerTool(
     'search_song',
@@ -134,12 +163,12 @@ export function registerTools(server) {
     'listen_together_status',
     {
       title: '查看一起听',
-      description: '查询当前「一起听」房间状态：有没有在听、房间 id、对方是谁、正在放什么。',
+      description: '查询当前「一起听」房间状态：有没有在听、房间 id、房里都有谁、已经持续多久。',
       inputSchema: {},
     },
     async () => {
       requireLogin()
-      return text(await api.listenTogetherStatus())
+      return text(slimRoom(await api.listenTogetherStatus()))
     },
   )
 
