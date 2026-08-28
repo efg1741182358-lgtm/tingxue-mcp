@@ -123,6 +123,10 @@ export function beijing(ms) {
 // 响应结构是照 weapi 的惯例推的。所以认不出结构时必须明说并把字段名报上来——
 // 绝不能返回一个空数组假装「你没发过评论」。工具宁可说「我不知道」，也不能
 // 说一句听起来像答案的假话：调用方分不出「查到了，是空的」和「我没看懂」。
+// ⚠ 默认只回 5 条，前提是上游按时间倒序（time=0 游标从最新开始）。
+// 这个前提没验过。万一它是正序，5 条就全是最老的评论，刚发的那条根本
+// 看不见——真环境第一次调用就能看出来，看错了把 default 调大不算修，
+// 得改排序。
 export function slimHistory(res) {
   const data = res?.data ?? res
   const list = [data?.comments, data?.commentHistoryList, data?.list, data?.records].find(
@@ -346,7 +350,7 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       title: '我的评论',
       description: '列出本账号发过的评论，含 commentId（删评论要用）。',
       inputSchema: {
-        limit: z.coerce.number().int().min(1).max(50).default(10).describe('返回条数'),
+        limit: z.coerce.number().int().min(1).max(50).default(5).describe('返回条数'),
       },
     },
     async ({ limit }) => {
