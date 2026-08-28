@@ -36,13 +36,42 @@ export function explain(err) {
   return `网易云接口失败（status=${status ?? '?'} code=${code ?? '?'}）：${msg || '无详细信息'}`
 }
 
+// 少数接口（playlist_tracks 是典型）在自己的 catch 里又往外包了一层：
+//   { status: 200, body: { 真正的结果 }, cookie: [...] }
+// 两个后果，都很隐蔽：
+//   1. 真正的 code 藏在 body.body.code，顶层根本没有 code，下面那道
+//      错误码校验会整个跳过——恰恰漏掉最需要它的那个接口；
+//   2. cookie 会跟着返回值一路进模型上下文（NMTID 有效期十年）。
+export function unwrap(body) {
+  if (
+    body &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    'body' in body &&
+    ('status' in body || 'cookie' in body)
+  ) {
+    return body.body
+  }
+  return body
+}
+
+// 返回值里的 cookie 对调用方毫无用处，却是实打实的凭证。
+// 只有登录/续期那两处需要它，走 opts 显式保留。
+export function stripCookie(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body
+  if (!('cookie' in body)) return body
+  const { cookie, ...rest } = body
+  return rest
+}
+
 // 上游有一批接口会把失败吞成 HTTP 200，真正的错误码藏在 body.code 里。
 // 最典型的是 playlist_tracks：源码里 catch 之后原样 `return { status: 200, body: error.body }`。
 // 只看 res.body 而不看 code，等于把失败当成功往上报——工具一旦会撒谎，
 // 模型就会基于假成功继续往下做。所以这里统一把 code 当成结果的一部分校验。
 //
 // opts.raw：留给那些「非 200 是正常业务语义」的接口，目前只有扫码轮询
-// （800 过期 / 801 等待 / 802 已扫 / 803 成功，全都不是错误）。
+// （800 过期 / 801 等待 / 802 已扫 / 803 成功，全都不是错误）。原样返回。
+// opts.keepCookie：仍然校验错误码，但保留返回里的 cookie（登录续期要用）。
 async function call(name, params = {}, opts = {}) {
   const fn = NCM[name]
   if (typeof fn !== 'function') {
@@ -62,13 +91,17 @@ async function call(name, params = {}, opts = {}) {
     throw e
   }
 
+  if (opts.raw) return body
+
+  body = unwrap(body)
+
   const code = body?.code
-  if (!opts.raw && code != null && code !== 200) {
+  if (code != null && code !== 200) {
     const e = new Error(explain({ status: 200, body }))
     e.cause = body
     throw e
   }
-  return body
+  return opts.keepCookie ? body : stripCookie(body)
 }
 
 // 上游有接口用字符串比较布尔值，统一转成 'true' / 'false' 再传。
@@ -81,7 +114,8 @@ export const api = {
   // 扫码轮询的 800/801/802/803 都是正常状态，不能当错误抛
   qrCheck: (key) => call('login_qr_check', { key }, { raw: true }),
   loginStatus: () => call('login_status'),
-  loginRefresh: () => call('login_refresh'),
+  // 续期要拿返回里的新 cookie，这一处显式保留
+  loginRefresh: () => call('login_refresh', {}, { keepCookie: true }),
   userAccount: () => call('user_account'),
 
   // --- 搜索 ---

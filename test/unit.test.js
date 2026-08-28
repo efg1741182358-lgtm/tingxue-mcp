@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { explain, boolFlag } from '../src/netease.js'
+import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
 import { slimSongs, mmss, slimRoom, stripTimestamps, enabledTools } from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
@@ -139,4 +139,33 @@ test('boolFlag：回归——上游 like.js 拿字符串比布尔，传真 false
   // 过一遍 boolFlag 之后才是对的
   assert.equal(upstream(boolFlag(false)), false)
   assert.equal(upstream(boolFlag(true)), true)
+})
+
+test('unwrap：playlist_tracks 多包的那层要剥掉，露出真正的 code', () => {
+  // 实测拿到的原样形状
+  const raw = {
+    status: 200,
+    body: { trackIds: '[3317989656]', code: 200, count: 2, cloudCount: 0 },
+    cookie: ['NMTID=xxx; Max-Age=315360000; Path=/;'],
+  }
+  assert.deepEqual(unwrap(raw), { trackIds: '[3317989656]', code: 200, count: 2, cloudCount: 0 })
+})
+
+test('unwrap：剥完之后失败才看得见——这是当初漏掉的那一格', () => {
+  const 失败 = { status: 200, body: { code: 401, msg: '无权限' } }
+  assert.equal(unwrap(失败).code, 401)
+})
+
+test('unwrap：普通返回原样放行，不要误伤', () => {
+  assert.deepEqual(unwrap({ code: 200, playlist: [] }), { code: 200, playlist: [] })
+  // 有 body 字段但不是那层包装（没有 status / cookie），不动
+  assert.deepEqual(unwrap({ code: 200, body: '正文' }), { code: 200, body: '正文' })
+  assert.equal(unwrap(null), null)
+  assert.deepEqual(unwrap([1, 2]), [1, 2])
+})
+
+test('stripCookie：凭证不进模型上下文', () => {
+  assert.deepEqual(stripCookie({ code: 200, cookie: ['NMTID=xxx'] }), { code: 200 })
+  assert.deepEqual(stripCookie({ code: 200 }), { code: 200 })
+  assert.equal(stripCookie(null), null)
 })
