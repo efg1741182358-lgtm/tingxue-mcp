@@ -17,7 +17,11 @@ import * as session from './session.js'
 export const GROUPS = {
   search: ['search_song'],
   lyric: ['get_lyric'],
-  library: ['like_song', 'my_playlists', 'create_playlist', 'add_to_playlist', 'delete_playlist'],
+  library: [
+    'like_song', 'my_playlists', 'playlist_songs',
+    'create_playlist', 'add_to_playlist', 'delete_playlist',
+  ],
+  record: ['listening_record'],
   social: ['write_comment', 'my_comments', 'delete_comment', 'send_message'],
   together: ['listen_together_status'],
   status: ['login_status'],
@@ -67,14 +71,58 @@ export function mmss(ms) {
 
 // 搜索结果原样返回太吵（每首歌几十个字段），只留有用的。
 // 时长要留：热门歌被翻唱十几遍，只看歌名歌手挑不出是哪一版。
-export function slimSongs(result) {
-  const songs = result?.result?.songs || []
-  return songs.map((s) => ({
+export function slimSongList(songs) {
+  return (songs || []).map((s) => ({
     id: s.id,
     名称: s.name,
     歌手: (s.artists || s.ar || []).map((a) => a.name).join('/'),
     专辑: s.album?.name || s.al?.name,
     时长: mmss(s.duration ?? s.dt),
+  }))
+}
+
+export function slimSongs(result) {
+  return slimSongList(result?.result?.songs)
+}
+
+// 歌单里的歌。上游把整个歌单一次性回过来——「粤语」211 首，瘦身后也有
+// 六千多 token。所以默认只回一页，而且**必须说明截断了**：一个只回 20 首
+// 的工具如果不说话，调用方会以为这歌单就 20 首，然后基于这个结论继续往下
+// 做。少给数据是省钱，让人以为给全了是撒谎。
+export function slimTracks(res, limit, offset) {
+  if (!Array.isArray(res?.songs)) {
+    return {
+      结果: '没认出这个接口的返回结构，不敢瞎猜',
+      顶层字段: Object.keys(res || {}),
+    }
+  }
+  const 歌曲 = slimSongList(res.songs)
+  const out = { 歌曲 }
+  if (歌曲.length >= limit) {
+    out.说明 = `只列了第 ${offset + 1}~${offset + 歌曲.length} 首，后面还有。要继续看把 offset 设成 ${offset + limit}。`
+  }
+  return out
+}
+
+// 听歌排行。空列表有两种可能：真没有记录，或者对方把「听歌排行」设成了
+// 不公开——上游两种情况都回空，不给区分。那就不能替它选一个答案说出口。
+export function slimRecord(res, 周榜) {
+  const list = 周榜 ? res?.weekData : res?.allData
+  if (!Array.isArray(list)) {
+    return {
+      结果: '没认出这个接口的返回结构，不敢瞎猜',
+      顶层字段: Object.keys(res || {}),
+    }
+  }
+  if (!list.length) {
+    return {
+      结果: '空的。可能是这个账号把「听歌排行」设成了不公开，也可能真的没有记录——上游这两种情况回的是同一个空列表，分不出来。',
+    }
+  }
+  return list.map((r) => ({
+    名称: r?.song?.name,
+    歌手: (r?.song?.ar || r?.song?.artists || []).map((a) => a.name).join('/'),
+    播放次数: r?.playCount,
   }))
 }
 
@@ -272,6 +320,26 @@ export function registerTools(server, only = DEFAULT_ONLY) {
   )
 
   add(
+    'playlist_songs',
+    {
+      title: '看歌单里的歌',
+      // 「我喜欢的音乐」也是一个歌单这件事值得每轮都付——不写的话，
+      // 「我收藏了什么」会被当成查不了。pid/limit/offset 的含义参数名
+      // 自己说得清，describe 是白付。
+      description: '列出歌单里的歌，pid 用 my_playlists 拿。「我喜欢的音乐」也是歌单。',
+      inputSchema: {
+        pid: z.coerce.number().int(),
+        limit: z.coerce.number().int().min(1).max(100).default(20),
+        offset: z.coerce.number().int().min(0).default(0).describe('翻页起点'),
+      },
+    },
+    async ({ pid, limit, offset }) => {
+      requireLogin()
+      return text(slimTracks(await api.playlistTrackAll(pid, limit, offset), limit, offset))
+    },
+  )
+
+  add(
     'create_playlist',
     {
       title: '创建歌单',
@@ -395,6 +463,29 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       if (songId) return text(slimMessage(await api.sendSong(String(userId), songId, message)))
       if (!message) throw new Error('message 和 songId 至少要给一个。')
       return text(slimMessage(await api.sendText(String(userId), message)))
+    },
+  )
+
+  add(
+    'listening_record',
+    {
+      title: '听歌排行',
+      // 「不公开就拿不到」挪进返回值：它每一百次调用里只有一次用得上，
+      // 但写在这里是每一轮都付。真遇上时 slimRecord 会说清楚。
+      description: '看听歌排行，默认本账号最近一周。',
+      inputSchema: {
+        uid: z.coerce.number().int().optional().describe('默认本账号'),
+        allTime: z.boolean().default(false).describe('true=所有时间'),
+      },
+    },
+    async ({ uid, allTime }) => {
+      requireLogin()
+      let 目标 = uid
+      if (!目标) {
+        const me = await api.userAccount()
+        目标 = me?.account?.id
+      }
+      return text(slimRecord(await api.userRecord(目标, allTime ? 0 : 1), !allTime))
     },
   )
 

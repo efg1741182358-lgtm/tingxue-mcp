@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 
 import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
 import {
-  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, GROUPS,
+  slimSongs, mmss, slimRoom, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, slimTracks, slimRecord, GROUPS,
 } from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
@@ -283,4 +283,59 @@ test('my_comments 跟写/删评论在同一组，不会出现发得出、查不�
   assert.ok(GROUPS.social.includes('my_comments'))
   assert.ok(GROUPS.social.includes('write_comment'))
   assert.ok(GROUPS.social.includes('delete_comment'))
+})
+
+test('slimTracks：截断时必须说出来，不能让人以为歌单就这么点歌', () => {
+  const songs = Array.from({ length: 20 }, (_, i) => ({
+    id: i, name: 's' + i, ar: [{ name: 'a' }], al: { name: 'b' }, dt: 60000,
+  }))
+  const out = slimTracks({ songs }, 20, 0)
+  assert.equal(out.歌曲.length, 20)
+  assert.match(out.说明, /后面还有/)
+  assert.match(out.说明, /offset 设成 20/)
+})
+
+test('slimTracks：没截断就不要多说一句废话', () => {
+  const songs = [{ id: 1, name: 's', ar: [{ name: 'a' }], al: { name: 'b' }, dt: 175000 }]
+  const out = slimTracks({ songs }, 20, 0)
+  assert.deepEqual(out, { 歌曲: [{ id: 1, 名称: 's', 歌手: 'a', 专辑: 'b', 时长: '2:55' }] })
+  assert.equal(out.说明, undefined)
+})
+
+test('slimTracks：翻页时说明里的区间要跟着 offset 走', () => {
+  const songs = Array.from({ length: 5 }, (_, i) => ({ id: i, name: 's', ar: [], al: {}, dt: 0 }))
+  assert.match(slimTracks({ songs }, 5, 20).说明, /第 21~25 首/)
+})
+
+test('slimTracks：认不出结构时明说，不返回空歌单', () => {
+  const out = slimTracks({ code: 200 }, 20, 0)
+  assert.ok(!Array.isArray(out.歌曲))
+  assert.match(out.结果, /没认出/)
+})
+
+test('slimRecord：空列表分不出「不公开」还是「真没有」，就不能替它选一个说', () => {
+  const out = slimRecord({ weekData: [] }, true)
+  assert.ok(!Array.isArray(out))
+  assert.match(out.结果, /不公开/)
+  assert.match(out.结果, /分不出来/)
+})
+
+test('slimRecord：周榜和总榜读的是不同字段，别拿错', () => {
+  const res = {
+    weekData: [{ playCount: 7, song: { name: '周', ar: [{ name: 'x' }] } }],
+    allData: [{ playCount: 99, song: { name: '总', ar: [{ name: 'y' }] } }],
+  }
+  assert.equal(slimRecord(res, true)[0].名称, '周')
+  assert.equal(slimRecord(res, false)[0].名称, '总')
+  assert.equal(slimRecord(res, false)[0].播放次数, 99)
+})
+
+test('slimRecord：认不出结构时明说，不伪装成「没听过歌」', () => {
+  assert.match(slimRecord({ code: 200 }, true).结果, /没认出/)
+})
+
+test('playlist_songs 跟建歌单/加歌在同一组——造得出就得看得见', () => {
+  assert.ok(GROUPS.library.includes('playlist_songs'))
+  assert.ok(GROUPS.library.includes('create_playlist'))
+  assert.ok(GROUPS.record.includes('listening_record'))
 })

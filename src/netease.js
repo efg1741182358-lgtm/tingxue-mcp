@@ -134,6 +134,14 @@ export const api = {
     call('playlist_tracks', { op, pid, tracks }),
   userPlaylist: (uid, limit = 50) => call('user_playlist', { uid, limit }),
   playlistDelete: (id) => call('playlist_delete', { id }),
+  // 歌单里的歌。上游内部按 n:100000 拉全量 trackIds 再切片，所以 limit
+  // 省的是返回体积不是上游负担——但省返回体积正是我们要的。
+  playlistTrackAll: (id, limit = 20, offset = 0) =>
+    call('playlist_track_all', { id, limit, offset }),
+
+  // --- 听歌排行 ---
+  // type: 1=最近一周，0=所有时间
+  userRecord: (uid, type = 1) => call('user_record', { uid, type }),
 
   // --- 评论 ---
   // t: 1=发送 0=删除 2=回复；type: 0=歌曲 2=歌单 ...
