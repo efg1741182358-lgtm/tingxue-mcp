@@ -4,7 +4,9 @@
 // 授权页用一个口令（AUTH_PASSWORD）把门，防止别人拿到你的地址就能连。
 import crypto from 'node:crypto'
 
-const PASSWORD = process.env.AUTH_PASSWORD || ''
+// 同样要 trim：面板上多粘一个空格就会改变下面的密钥，
+// 导致所有已签发的令牌静默失效，而客户端只会报「令牌过期」。
+const PASSWORD = (process.env.AUTH_PASSWORD || '').trim()
 const SECRET = crypto
   .createHash('sha256')
   .update(PASSWORD || 'insecure-default')
@@ -14,6 +16,12 @@ const TOKEN_TTL_S = 365 * 24 * 3600 // 一年，省得反复授权
 
 // 授权码活不过几秒，放内存就够
 const codes = new Map()
+
+// 口令的短指纹。不泄露口令本身，但口令一变它就变——
+// 令牌突然全失效时，对比这个值就能确认是不是口令被改了。
+export const passwordFingerprint = PASSWORD
+  ? crypto.createHash('sha256').update(PASSWORD).digest('hex').slice(0, 8)
+  : null
 
 function b64u(buf) {
   return Buffer.from(buf).toString('base64url')

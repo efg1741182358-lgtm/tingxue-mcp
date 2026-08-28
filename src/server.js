@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 
 import { registerTools } from './tools.js'
-import { mountOAuth, requireAuth } from './oauth.js'
+import { mountOAuth, requireAuth, passwordFingerprint } from './oauth.js'
 import { api } from './netease.js'
 import * as session from './session.js'
 
@@ -132,4 +132,7 @@ app.listen(PORT, () => {
     console.warn('  ⚠ PUBLIC_URL 首尾有空白，已自动清除；建议在面板上一并改掉')
   }
   console.log(`  数据目录 ${process.env.DATA_DIR || './data'}（未挂持久卷则重启后需重新扫码）`)
+  if (passwordFingerprint) {
+    console.log(`  口令指纹 ${passwordFingerprint}（这个值一变，已签发的令牌全部失效）`)
+  }
 })
