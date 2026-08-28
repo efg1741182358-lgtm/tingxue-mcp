@@ -1,6 +1,16 @@
 // NeteaseCloudMusicApi 的薄封装：自动注入 cookie 和 realIP。
-import NCM from 'NeteaseCloudMusicApi'
 import * as session from './session.js'
+
+// 上游包在模块加载时会往系统临时目录写 anonymous_token。纯函数测试只需要
+// explain / unwrap / stripCookie / boolFlag，不该因为「导入这个文件」就触碰
+// 磁盘。把上游依赖推迟到第一次真实 API 调用；Promise 缓存同时保证并发首调
+// 只加载一次，后续调用仍复用同一个模块实例。
+let ncmPromise
+
+function loadNCM() {
+  ncmPromise ??= import('NeteaseCloudMusicApi').then((mod) => mod.default ?? mod)
+  return ncmPromise
+}
 
 // 网易云按 IP 限区。服务器在境外时不带 realIP 会静默返回空结果 /
 // -460「网络太拥挤」，而不是明确报错——这是最容易查半天的坑。
@@ -95,6 +105,7 @@ export function stripCookie(body) {
 // （800 过期 / 801 等待 / 802 已扫 / 803 成功，全都不是错误）。原样返回。
 // opts.keepCookie：仍然校验错误码，但保留返回里的 cookie（登录续期要用）。
 async function call(name, params = {}, opts = {}) {
+  const NCM = await loadNCM()
   const fn = NCM[name]
   if (typeof fn !== 'function') {
     throw new Error(`未知接口：${name}`)

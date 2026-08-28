@@ -2,11 +2,37 @@
 // 这些用例全部来自实测踩到的坑，不是为了凑覆盖率。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
 import {
   slimSongs, mmss, slimRoom, slimRoomCheck, trimRoomInfo, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, slimTracks, slimRecord, roomIdOf, GROUPS,
 } from '../src/tools.js'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+test('导入纯函数模块不加载网易云依赖，也不写 anonymous_token', () => {
+  // NeteaseCloudMusicApi 顶层加载时会往 os.tmpdir() 写 anonymous_token。
+  // 给子进程一个故意不存在的临时目录：若依赖又退回顶层导入，这里会因
+  // ENOENT 失败；惰性加载时只导入纯函数模块，不会碰这个路径。
+  const nonexistentTmp = path.join(
+    ROOT,
+    `.tmp-must-not-be-used-${process.pid}-${Date.now()}`,
+  )
+  const result = spawnSync(
+    process.execPath,
+    ['--input-type=module', '--eval', "await import('./src/netease.js')"],
+    {
+      cwd: ROOT,
+      env: { ...process.env, TMPDIR: nonexistentTmp, TMP: nonexistentTmp, TEMP: nonexistentTmp },
+      encoding: 'utf8',
+    },
+  )
+
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+})
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
   // playlist_tracks 往别人的歌单里加歌，就是这个形状
@@ -477,4 +503,3 @@ test('slimRoom 仍然带 在一起听 / 对方设备，没被重构改坏', () =
   assert.equal(out.房间id, 'r-1')
   assert.equal(out.对方设备, 'iOS 9.0.0')
 })
-
