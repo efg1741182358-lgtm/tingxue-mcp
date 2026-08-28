@@ -33,11 +33,18 @@ export async function load() {
 
 export async function save(newCookie) {
   cookie = newCookie || ''
-  await fs.mkdir(DATA_DIR, { recursive: true })
+  // 目录 0700、文件 0600：这里存的是能操作账号的凭证，同机其他用户不该读到。
+  await fs.mkdir(DATA_DIR, { recursive: true, mode: 0o700 })
+  // 先写临时文件再 rename。rename 在同一文件系统上是原子的，所以进程
+  // 写到一半被杀时，磁盘上要么是完整的旧内容、要么是完整的新内容，
+  // 不会留下半截 JSON —— 那会让下次启动解析失败、登录态凭空消失。
+  const tmp = `${FILE}.${process.pid}.tmp`
   await fs.writeFile(
-    FILE,
+    tmp,
     JSON.stringify({ cookie, savedAt: new Date().toISOString() }, null, 2),
+    { mode: 0o600 },
   )
+  await fs.rename(tmp, FILE)
   console.log('[session] 登录态已落盘')
 }
 
