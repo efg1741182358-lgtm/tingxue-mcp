@@ -144,6 +144,10 @@ export const api = {
   search: (keywords, limit = 15, type = 1) =>
     call('search', { keywords, limit, type }),
 
+  // --- 歌曲详情 ---
+  // 只为一件事存在：一起听那边只报得出一个歌 id，歌名和歌手得回来这里问。
+  songDetail: (ids) => call('song_detail', { ids: String(ids) }),
+
   // --- 收藏 / 歌单 ---
   // ⚠ 上游 like.js 是 `query.like == 'false' ? false : true`——拿参数跟
   // **字符串** 'false' 比。传真布尔 false 时 `false == 'false'` 会走
@@ -182,8 +186,13 @@ export const api = {
   sendSong: (userIds, id, msg) => call('send_song', { user_ids: userIds, id, msg }),
 
   // --- 一起听 ---
-  // 只有查状态。遥控切歌（listentogether_play_command）已实测无效，见 README。
+  // 只有读，没有写。遥控切歌（listentogether_play_command）已实测无效，见 README。
   listenTogetherStatus: () => call('listentogether_status'),
+  // 房间当前的播放列表。「一起听正在放哪首歌」只有这一个接口问得到：
+  // status 回的是房间和人，room_check 实测只回能不能加入
+  // （{ joinable, status, copywriting }），两个都不带歌。
+  listenTogetherPlaylist: (roomId) =>
+    call('listentogether_sync_playlist_get', { roomId }),
   listenTogetherCreate: () => call('listentogether_room_create'),
   listenTogetherCheck: (roomId) => call('listentogether_room_check', { roomId }),
   listenTogetherEnd: (roomId) => call('listentogether_end', { roomId }),

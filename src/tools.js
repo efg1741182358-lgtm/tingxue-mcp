@@ -24,8 +24,8 @@ export const GROUPS = {
   record: ['listening_record'],
   social: ['write_comment', 'my_comments', 'delete_comment', 'send_message'],
   together: [
-    'listen_together_status', 'listen_together_create',
-    'listen_together_check', 'listen_together_end',
+    'listen_together_status', 'listen_together_song',
+    'listen_together_create', 'listen_together_check', 'listen_together_end',
   ],
   status: ['login_status'],
 }
@@ -178,6 +178,20 @@ export function stripTimestamps(lrc) {
   return 正文.join('\n')
 }
 
+const 没有歌词 = '这首歌没有歌词（纯音乐，或网易云没收录）。'
+
+// 歌词的出口只留这一个：get_lyric 和 listen_together_song 回的是同一样东西，
+// 各写一份的话，改了一处忘了另一处，同一个服务会对同一首歌给出两种歌词。
+// 没有歌词回 null，让调用方自己决定那句话怎么说。
+export function slimLyric(res) {
+  const 原文 = res?.lrc?.lyric?.trim()
+  if (!原文) return null
+  const out = { 歌词: stripTimestamps(原文) }
+  const 译 = res?.tlyric?.lyric?.trim()
+  if (译) out.翻译 = stripTimestamps(译)
+  return out
+}
+
 // 写操作（收藏、建歌单、加歌、删歌单、删评论）成功时只需要回答一件事：成了。
 // 失败根本走不到这里——call() 已经在 code != 200 时抛掉了，所以连 code 都不用回。
 // 而上游附赠的东西一律不值钱：create_playlist 回四十多个字段五百多 token
@@ -323,6 +337,76 @@ export function slimRoomCheck(res) {
   return trimRoomInfo(info)
 }
 
+// 一起听正在放哪首歌，上游没给一个「就是它」的字段，而这两个接口
+// （status / sync_playlist_get）的返回结构都没能在开发机上跑通
+// （出网白名单不含 music.163.com）。所以这里只认几个含义明确的键名，
+// 按优先级一个一个找，找不到就说找不到：
+//
+//   anchorSongId   同步锚点。sync_list_command 上报时用它表示「对齐到这首」，
+//                  语义最准，所以排第一。
+//   currentSongId / playingSongId   常见写法，一并认。
+//   songId         心跳（listentogether_heatbeat）上报自己在放什么用的就是它。
+//                  语义偏弱，排最后。
+//
+// 两条不能破的规矩：
+//
+// ⚠ 不进数组。数组是播放列表（randomList / displayList / roomUsers），
+//   里面的 songId 是「列表里的某一首」，不是「正在放的那一首」。进去找等于
+//   随手抓一首歌冒充答案。
+//
+// ⚠ 找不到就返回 null，绝不退而求其次取列表第一首。调用方正戴着耳机听歌，
+//   端错一首的下场是他看着不对的歌词，却分不清是接口没给还是我们猜错了。
+//   「我没找着」是答案，猜一首不是。
+const 当前歌键 = ['anchorSongId', 'currentSongId', 'playingSongId', 'songId']
+
+// '' / 0 / -1 都是上游表示「没有」的写法（sync_list_command 的空锚点就写成
+// anchorSongId: ''），不能把它们当成歌 id。
+function asSongId(v) {
+  const n = typeof v === 'string' ? Number(v.trim()) : v
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+function digFor(node, key, depth = 0) {
+  if (depth > 6 || !node || typeof node !== 'object' || Array.isArray(node)) return null
+  const 命中 = asSongId(node[key])
+  if (命中) return 命中
+  for (const v of Object.values(node)) {
+    // 有的字段整个是一串 JSON（sync 这组接口的 playlistParam 就是这么传的），
+    // 是 JSON 就进去接着找，不是就跳过。
+    const 子 = typeof v === 'string' ? parseNested(v) : v
+    const hit = digFor(子, key, depth + 1)
+    if (hit) return hit
+  }
+  return null
+}
+
+function parseNested(str) {
+  const s = str.trim()
+  if (!s.startsWith('{')) return null
+  try {
+    return JSON.parse(s)
+  } catch {
+    return null
+  }
+}
+
+// 认不出结构时把原始返回交出去，是为了让开发者一次往返就能改对。但一起听的
+// 播放列表可能有几百首，整个倒进上下文就是几千 token 的账单。所以截断——
+// 并且说明截断了：截了不吭声，看的人会以为上游就回了这么多。
+export function capRaw(res, 上限 = 1500) {
+  const s = JSON.stringify(res, null, 2)
+  if (s.length <= 上限) return res
+  return `${s.slice(0, 上限)}\n…（原始返回共 ${s.length} 字符，这里只截了前 ${上限}，够看清结构）`
+}
+
+export function findSongId(res) {
+  for (const key of 当前歌键) {
+    const hit = digFor(res, key)
+    if (hit) return hit
+  }
+  return null
+}
+
 // tools/list 每一轮都进模型上下文，而 SDK 生成的这份 JSON 里有三样东西
 // 在每个工具上一字不差地重复：
 //   · "$schema": "http://json-schema.org/draft-07/schema#"   ×工具数  ≈195
@@ -383,15 +467,7 @@ export function registerTools(server, only = DEFAULT_ONLY) {
       description: '取歌词，有翻译一并返回。已去掉时间轴。',
       inputSchema: { id: z.coerce.number().int().describe('歌曲 id') },
     },
-    async ({ id }) => {
-      const res = await api.lyric(id)
-      const 原文 = res?.lrc?.lyric?.trim()
-      if (!原文) return text('这首歌没有歌词（纯音乐，或网易云没收录）。')
-      const out = { 歌词: stripTimestamps(原文) }
-      const 译 = res?.tlyric?.lyric?.trim()
-      if (译) out.翻译 = stripTimestamps(译)
-      return text(out)
-    },
+    async ({ id }) => text(slimLyric(await api.lyric(id)) ?? 没有歌词),
   )
 
   add(
@@ -615,6 +691,50 @@ export function registerTools(server, only = DEFAULT_ONLY) {
     async () => {
       requireLogin()
       return text(slimRoom(await api.listenTogetherStatus()))
+    },
+  )
+
+  add(
+    'listen_together_song',
+    {
+      title: '一起听在放什么',
+      description: '看「一起听」正在放的那首歌：歌手和歌词。',
+      inputSchema: {},
+    },
+    async () => {
+      requireLogin()
+      const 状态 = await api.listenTogetherStatus()
+      // 不在房间里就照 listen_together_status 的原话说，两个工具对同一个
+      // 问题不该有两种说法。
+      if (!状态?.data?.inRoom) return text(slimRoom(状态))
+
+      // 房间状态里有没有带当前歌，没实测过。带了就省一次请求；没带再去问
+      // 「当前列表」——上游唯一一个知道房间在放什么的接口。
+      let 歌 = findSongId(状态)
+      let 列表
+      const 房间id = roomIdOf(状态)
+      if (!歌 && 房间id) {
+        列表 = await api.listenTogetherPlaylist(房间id)
+        歌 = findSongId(列表)
+      }
+      if (!歌) {
+        // 认不出就原样交出去，跟 listen_together_check 守同一条。
+        return text({
+          结果: '在房间里，但没认出正在放的是哪一首。不猜——猜错就是把另一首歌的歌词端给你。',
+          房间状态字段: Object.keys(状态?.data || {}),
+          当前列表原样: 列表 ? capRaw(列表) : '没查：房间号也没认出来',
+          下一步: '把上面两行交给开发者，一次往返就能改对',
+        })
+      }
+
+      // 歌名和歌手只有 song_detail 给得出：一起听那边从头到尾只有一个 id。
+      const [详情, 词] = await Promise.all([api.songDetail(歌), api.lyric(歌)])
+      const s = (详情?.songs || [])[0]
+      return text({
+        歌名: s?.name ?? null,
+        歌手: (s?.ar || s?.artists || []).map((a) => a.name).join('/') || null,
+        ...(slimLyric(词) ?? { 歌词: 没有歌词 }),
+      })
     },
   )
 

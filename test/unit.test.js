@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 
 import { explain, boolFlag, unwrap, stripCookie } from '../src/netease.js'
 import {
-  slimSongs, mmss, slimRoom, slimRoomCheck, trimRoomInfo, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, slimTracks, slimRecord, roomIdOf, GROUPS,
+  slimSongs, mmss, slimRoom, slimRoomCheck, trimRoomInfo, stripTimestamps, enabledTools, slimComment, slimMessage, ack, slimHistory, beijing, slimTracks, slimRecord, roomIdOf, findSongId, slimLyric, capRaw, GROUPS,
 } from '../src/tools.js'
 
 test('explain：上游把失败吞成 200 时，仍按 body.code 说人话', () => {
@@ -478,3 +478,91 @@ test('slimRoom 仍然带 在一起听 / 对方设备，没被重构改坏', () =
   assert.equal(out.对方设备, 'iOS 9.0.0')
 })
 
+
+// --- 一起听正在放什么 ---
+// 这两个接口（status / sync_playlist_get）的真实返回结构同样没有实测过。
+// 所以测的是提取规则本身：什么算数、什么不算、认不出时闭嘴。
+
+test('findSongId：anchorSongId 优先，播放列表里的 songId 不许冒充正在放的那首', () => {
+  const 上游 = {
+    code: 200,
+    data: {
+      // 列表是数组：里面每一首都有 songId，但没有一首是「正在放的那首」
+      displayList: [{ songId: 111 }, { songId: 222 }],
+      anchorSongId: 33894312,
+    },
+  }
+  assert.equal(findSongId(上游), 33894312)
+})
+
+test('findSongId：绝不进数组捞——只有列表没有锚点时，答案是「不知道」', () => {
+  // 退而求其次取第一首，就是把另一首歌的歌词端给正戴着耳机的人
+  assert.equal(findSongId({ data: { displayList: [{ songId: 111 }, { songId: 222 }] } }), null)
+  assert.equal(findSongId({ data: { roomUsers: [{ userId: 1, songId: 999 }] } }), null)
+})
+
+test('findSongId：空锚点的几种写法都不算数', () => {
+  // sync_list_command 上报空锚点就写成 anchorSongId: ''
+  assert.equal(findSongId({ data: { anchorSongId: '' } }), null)
+  assert.equal(findSongId({ data: { anchorSongId: 0 } }), null)
+  assert.equal(findSongId({ data: { anchorSongId: -1, anchorPosition: -1 } }), null)
+  assert.equal(findSongId({ data: { songId: null } }), null)
+})
+
+test('findSongId：整串 JSON 的字段（playlistParam 就是）也要挖进去', () => {
+  const 上游 = {
+    data: {
+      playlistParam: JSON.stringify({ anchorSongId: '186016', anchorPosition: 3 }),
+    },
+  }
+  // 上游这个字段是字符串型 id，转成数字再回
+  assert.equal(findSongId(上游), 186016)
+})
+
+test('findSongId：不是 JSON 的字符串跳过，不炸', () => {
+  assert.equal(findSongId({ data: { copywriting: '一起听已失效', songId: 42 } }), 42)
+})
+
+test('findSongId：心跳那个 songId 认，但排在锚点后面', () => {
+  assert.equal(findSongId({ data: { songId: 5, anchorSongId: 9 } }), 9)
+  assert.equal(findSongId({ data: { songId: 5 } }), 5)
+})
+
+test('findSongId：认不出的结构回 null，而不是编一个 id', () => {
+  assert.equal(findSongId({ code: 200, data: { 某个没见过的层: { trackId: 7 } } }), null)
+  assert.equal(findSongId(null), null)
+  assert.equal(findSongId({}), null)
+})
+
+test('slimLyric：没歌词回 null，让调用方自己说那句话', () => {
+  assert.equal(slimLyric({}), null)
+  assert.equal(slimLyric({ lrc: { lyric: '   ' } }), null)
+})
+
+test('slimLyric：时间轴剥掉，有翻译一并带上', () => {
+  const out = slimLyric({
+    lrc: { lyric: '[00:01.00]第一句\n[00:05.20]第二句' },
+    tlyric: { lyric: '[00:01.00]line one' },
+  })
+  assert.equal(out.歌词, '第一句\n第二句')
+  assert.equal(out.翻译, 'line one')
+})
+
+test('GROUPS：一起听那组带上「在放什么」，不然 TOOLS=together 会把它漏掉', () => {
+  assert.ok(GROUPS.together.includes('listen_together_song'))
+  assert.ok(enabledTools('together').has('listen_together_song'))
+})
+
+test('capRaw：小的原样给，大的截断并说明截断了', () => {
+  const 小 = { code: 200, data: { anchorSongId: 1 } }
+  assert.deepEqual(capRaw(小), 小)
+
+  // 几百首歌的播放列表，整个倒进上下文就是几千 token
+  const 大 = { code: 200, data: { displayList: Array.from({ length: 300 }, (_, i) => ({ songId: i })) } }
+  const out = capRaw(大, 200)
+  assert.equal(typeof out, 'string')
+  assert.ok(out.length < 400)
+  // 截了必须说，不然看的人会以为上游就回了这么多
+  assert.match(out, /只截了前 200/)
+  assert.match(out, /原始返回共 \d+ 字符/)
+})

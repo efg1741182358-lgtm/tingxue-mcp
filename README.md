@@ -23,10 +23,37 @@
 | `send_message` | 给某人发私信，可附一首歌 |
 | `listening_record` | 听歌排行（默认本账号最近一周） |
 | `listen_together_status` | 查看「一起听」房间状态 |
+| `listen_together_song` | 看一起听正在放的那首歌：歌手和歌词 |
 | `listen_together_create` | 发起一起听，建新房间 |
 | `listen_together_check` | 按 roomId 查某个房间 |
 | `listen_together_end` | 结束一起听房间 |
 | `login_status` | 查当前登录的账号 |
+
+### 「正在放什么」是怎么问出来的（结构没实测过）
+
+`listen_together_song` 走上游的 `listentogether_sync_playlist_get`（「当前列表
+获取」）。这是唯一问得到的路：`status` 只回房间和人，`room_check` 实测只回
+能不能加入——
+
+```
+{ joinable: false, type: null, status: "FULL",
+  copywriting: "一起听已失效，可邀请好友进入新的一起听" }
+```
+
+两个都不带歌。而 `sync_playlist_get` 的返回结构没能在开发机上跑通（出网白名单
+不含 music.163.com），所以歌 id 是按含义明确的键名认的，按优先级：
+`anchorSongId`（同步锚点，语义最准）→ `currentSongId` / `playingSongId` →
+`songId`（心跳上报字段，语义偏弱）。字符串型 id 和整串 JSON 的字段
+（`playlistParam`）都认。
+
+两条写死在代码里的规矩：
+
+- **不进数组找。** 数组是播放列表（`randomList` / `displayList`），里面的
+  `songId` 是「列表里的某一首」，不是「正在放的那一首」。进去找等于随手抓一首
+  歌冒充答案。
+- **认不出就说认不出**，把原始返回一并交出去，绝不退而求其次取列表第一首。
+  调用方正戴着耳机——端错一首的下场是他看着不对的歌词，却分不清是接口没给，
+  还是我们猜错了。
 
 ### 三个已知够不到的地方
 
@@ -189,12 +216,12 @@ test/
 
 | `TOOLS` | 工具数 | 每轮固定开销 |
 |---|---:|---:|
-| 不设置（全开） | 18 | ~1489 |
+| 不设置（全开） | 19 | ~1535 |
 | `library` | 6 | ~577 |
 | `search,lyric` | 2 | ~171 |
 
 可用组：`search` / `lyric` / `library`（收藏歌单） / `social`（评论私信） /
-`record`（听歌排行） / `together`（一起听，含建/查/关房间） / `status`（登录状态）。
+`record`（听歌排行） / `together`（一起听：在放什么、建/查/关房间） / `status`（登录状态）。
 也可以直接写单个工具名，
 逗号分隔。启动日志会打印实际启用了哪些。
 
